@@ -181,6 +181,13 @@ export interface EnvironmentSignalSnapshot {
 	skills: ResourceEntry[];
 	/** Live subagent set — catalog-shape, matching the added-agent delta lines. */
 	subagents: ResourceEntry[];
+	/**
+	 * Whether the model knew of any skill or subagent before this change. An
+	 * empty roster is stated only when it replaces a non-empty one; an agent
+	 * that never had skills or subagents gets no "(none)" line.
+	 */
+	hadSkills: boolean;
+	hadSubagents: boolean;
 }
 
 /**
@@ -213,25 +220,32 @@ export function renderMcpUnavailableSignalBody(
 }
 
 export function renderEnvironmentSignalBody(snapshot: EnvironmentSignalSnapshot): string {
-	const lines: string[] = [
-		"The agent's execution environment (sandbox) was replaced.",
+	// A swap is a presence flip: the environment was either attached where
+	// there was none, or detached. Only a detach can lose earlier work.
+	const lines: string[] =
 		snapshot.cwd !== undefined
-			? `The current working directory is now \`${snapshot.cwd}\`.`
-			: 'There is no sandbox anymore: shell and filesystem tools are unavailable.',
-		'Files, directories, and command results from the previous environment may no longer be accessible — do not rely on anything learned about the previous environment without re-verifying it here, unless instructed otherwise.',
+			? [
+					"A sandbox was attached to the agent's execution environment.",
+					`The current working directory is \`${snapshot.cwd}\`.`,
+				]
+			: [
+					"The agent's sandbox was detached: shell and filesystem tools are unavailable.",
+					'Files, directories, and command results from the sandbox are no longer accessible.',
+				];
+	lines.push(
 		'',
 		`All available tools: ${snapshot.tools.length > 0 ? snapshot.tools.join(', ') : '(none)'}`,
-	];
+	);
 	if (snapshot.skills.length > 0) {
 		lines.push('All available skills:');
 		for (const entry of snapshot.skills) lines.push(catalogLine(entry));
-	} else {
+	} else if (snapshot.hadSkills) {
 		lines.push('All available skills: (none)');
 	}
 	if (snapshot.subagents.length > 0) {
 		lines.push('All available agents:');
 		for (const entry of snapshot.subagents) lines.push(catalogLine(entry));
-	} else {
+	} else if (snapshot.hadSubagents) {
 		lines.push('All available agents: (none)');
 	}
 	return lines.join('\n');
