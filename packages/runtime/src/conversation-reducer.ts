@@ -2,6 +2,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type {
 	AssistantMessage,
 	JsonObject,
+	SystemMessage,
 	ToolResultMessage,
 	UserMessage,
 } from '@earendil-works/pi-ai';
@@ -179,6 +180,19 @@ interface ReducedConversationStateBase {
 	 * interrupted tool batch legitimately reads across the settlement.
 	 */
 	attemptScopedRecordIds: Map<string, string[]>;
+	/**
+	 * The current context epoch's tool declarations in stream order (see
+	 * `tool_declaration`): the leading declaration first, then each
+	 * mid-conversation change. A compaction clears it.
+	 */
+	toolDeclarations: ToolDeclaration[];
+}
+
+/** One folded `tool_declaration` record. */
+export interface ToolDeclaration {
+	afterEntryId: string | null;
+	toolsAdded?: SystemMessage['toolsAdded'];
+	toolsRemoved?: SystemMessage['toolsRemoved'];
 }
 
 interface ResponseDataPart {
@@ -337,7 +351,7 @@ export interface ReducedContextEntry {
  * against from-scratch folds at every batch boundary, so shape drift without
  * a matching codec change fails CI.
  */
-export const REDUCED_STATE_FORMAT = 3;
+export const REDUCED_STATE_FORMAT = 4;
 
 export function createReducedInstanceState(): ReducedInstanceState {
 	return {
@@ -485,6 +499,7 @@ export function applyConversationRecord(
 			responseDataParts: new Map(),
 			lastAssistantEntryBySubmission: new Map(),
 			attemptScopedRecordIds: new Map(),
+			toolDeclarations: [],
 		});
 		state.conversationScopes.set(scopeKey, record.conversationId);
 		state.recordsById.set(record.id, indexConversationRecord(record));
@@ -803,6 +818,9 @@ export function applyConversationRecord(
 				details: record.details,
 				usage: record.usage,
 			});
+			// The rebuilt context after a compaction leads with the then-current
+			// tool set; the next request records it as the new epoch's lead.
+			conversation.toolDeclarations = [];
 			break;
 		case 'child_session_retained': {
 			validateChildReference(record);
@@ -897,6 +915,22 @@ export function applyConversationRecord(
 			// through the transcript's system messages on replay (pi 0.87), so
 			// no live marker needs restoring on the tool result message.
 			break;
+		case 'tool_declaration': {
+			const declaration: ToolDeclaration = {
+				afterEntryId: record.afterEntryId,
+				...(record.toolsAdded ? { toolsAdded: record.toolsAdded } : {}),
+				...(record.toolsRemoved ? { toolsRemoved: record.toolsRemoved } : {}),
+			};
+			if (record.afterEntryId === null) {
+				conversation.toolDeclarations = [declaration];
+			} else {
+				if (!conversation.entries.has(record.afterEntryId)) {
+					fail(record, `Tool declaration anchor "${record.afterEntryId}" does not exist.`);
+				}
+				conversation.toolDeclarations.push(declaration);
+			}
+			break;
+		}
 		case 'agent_start_run':
 		case 'agent_finish_cycle':
 			// Lifecycle-hook bookkeeping: the session reads these straight from

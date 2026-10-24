@@ -21,6 +21,7 @@ import type {
 	Message,
 	Model,
 	SimpleStreamOptions,
+	SystemMessage,
 	ToolResultMessage,
 	UserMessage,
 } from '@earendil-works/pi-ai';
@@ -90,12 +91,12 @@ import {
 	toolStepRecordId,
 } from './conversation-records.ts';
 import {
-	buildConversationContext,
 	buildConversationContextEntries,
 	getActiveConversationPath,
 	type IndexedConversationRecord,
 	type InProgressAssistantMessage,
 	type ReducedConversationState,
+	type ToolDeclaration,
 	toolOutcomeKey,
 	toolResultEntryId,
 } from './conversation-reducer.ts';
@@ -1161,19 +1162,10 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				{ advance: false },
 			);
 		}
-		// Tool additions unlocked by the anchoring tool batch reach the model
-		// through the transcript: pi's agent loop announces tool-set changes as
-		// system messages before the next request (its transcript model carries
-		// `toolsAdded` declarations; deferred-tool-loading channels consume them
-		// via the request-tools projection). No live message marker or durable
-		// tool-addition record is needed for the LIVE transcript. Durability
-		// contract: a canonical rebuild (crash/resume, fold, compaction) does
-		// NOT preserve the historical position of these mid-conversation
-		// declarations — `rebuildCanonicalContext` rebaselines the current
-		// prompt and current tool set into the leading system message instead.
-		// Request-level tools and semantics survive identically; only the
-		// declaration placement (and thus cache-prefix / deferred-tool anchors)
-		// rebaselines to the leading message on restore.
+		// Tool-set changes reach the model through the transcript: pi's agent
+		// loop announces them as system messages before the next request, and
+		// the session persists each one as a `tool_declaration` record so a
+		// canonical rebuild replays it at the same position.
 		const { records } = this.drainSignalAppendRecords(parentId);
 		await this.appendCanonical([...records, this.resourceSnapshotRecord(current, false)]);
 		this.lastNarratedResources = current;
@@ -2336,6 +2328,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 							this.activeSubmissionId !== undefined && this.responseMessageId === undefined;
 						if (isResponseFirstMessage) this.responseMessageId = messageId;
 						await this.appendCanonical([
+							...(await this.leadingToolDeclarationRecords()),
 							{
 								...this.canonicalEnvelope('assistant_message_started'),
 								type: 'assistant_message_started',
@@ -2510,6 +2503,9 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				case 'message_end': {
 					const turnId = this.activeTurnId ?? generateTurnId();
 					this.activeTurnId = turnId;
+					if (event.message.role === 'system') {
+						await this.persistToolDeclaration(event.message);
+					}
 					if (event.message.role === 'assistant') {
 						const canonical = this.canonicalAssistant;
 						if (canonical) {
@@ -4902,39 +4898,97 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	private async rebuildCanonicalContext(): Promise<void> {
 		const conversation = await this.requireConversation();
 		const resolved = await this.resolveCanonicalContextAttachments(conversation);
-		const messages = buildConversationContext(conversation, {
+		const entries = buildConversationContextEntries(conversation, {
 			resolveAttachment: (attachment) => {
 				const image = resolved.get(attachment.id);
 				if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
 				return image;
 			},
 		});
-		// Canonical entries never carry the transcript's leading system message,
-		// and pi derives `AgentState.systemPrompt` read-only from it — so every
-		// canonical rebuild re-materializes it from the current rendered prompt
-		// and executable tools. This IS the tool-declaration durability
-		// contract: after a rebuild the current prompt and tool set are
-		// rebaselined into the leading message, and the historical position of
-		// mid-conversation tool declarations is not preserved (pi re-declares
-		// the current set against this base before the next request).
-		const lead = this.leadingSystemMessage();
+		// Canonical entries never carry the transcript's system messages, and
+		// pi derives `AgentState.systemPrompt` read-only from the leading one.
+		// The rebuild re-materializes the leading message from the current
+		// prompt and the epoch's recorded leading tool set, and replays each
+		// recorded tool-set change right after the entry it followed, so the
+		// rebuilt transcript declares tools exactly where the live one did.
+		// pi then declares any remaining difference to the executable tools
+		// before the next request.
+		const [first, ...rest] = conversation.toolDeclarations;
+		const leadDeclaration = first?.afterEntryId === null ? first : undefined;
+		const changes = new Map<string, SystemMessage[]>();
+		for (const declaration of leadDeclaration ? rest : conversation.toolDeclarations) {
+			if (declaration.afterEntryId === null) continue;
+			const list = changes.get(declaration.afterEntryId) ?? [];
+			list.push(toolDeclarationMessage(declaration));
+			changes.set(declaration.afterEntryId, list);
+		}
+		const messages: AgentMessage[] = [];
+		for (const entry of entries) {
+			messages.push(entry.message);
+			messages.push(...(changes.get(entry.sourceEntry.id) ?? []));
+		}
+		const lead = createInitialSystemMessage(
+			this.agentLoop.state.systemPrompt,
+			leadDeclaration
+				? leadDeclaration.toolsAdded
+				: this.agentLoop.state.tools.map((tool) => toToolDeclaration(tool)),
+		);
 		this.agentLoop.state.messages = lead ? [lead, ...messages] : messages;
 		this.contextCompacted = getLatestConversationCompaction(conversation) !== undefined;
 	}
 
 	/**
-	 * The transcript's leading system message: the current rendered prompt
-	 * plus the current executable tools as `toolsAdded` declarations. pi's
-	 * `createInitialSystemMessage` mirrors the seeding the `Agent` performed
-	 * at construction, so a rebuilt transcript is byte-consistent with a
-	 * freshly initialized one. `undefined` when the agent has neither a
-	 * prompt nor tools.
+	 * Durable `tool_declaration` records for the request that just started:
+	 * the epoch's leading tool set, once per context epoch (first request,
+	 * and the first request after each compaction).
 	 */
-	private leadingSystemMessage(): ReturnType<typeof createInitialSystemMessage> {
-		return createInitialSystemMessage(
-			this.agentLoop.state.systemPrompt,
-			this.agentLoop.state.tools.map((tool) => toToolDeclaration(tool)),
+	private async leadingToolDeclarationRecords(): Promise<ConversationRecord[]> {
+		const conversation = await this.requireConversation();
+		if (conversation.toolDeclarations[0]?.afterEntryId === null) return [];
+		const lead = this.agentLoop.state.messages[0];
+		const toolsAdded = lead?.role === 'system' ? lead.toolsAdded : undefined;
+		return [
+			{
+				...this.canonicalEnvelope('tool_declaration'),
+				type: 'tool_declaration',
+				afterEntryId: null,
+				...(toolsAdded && toolsAdded.length > 0 ? { toolsAdded } : {}),
+			},
+		];
+	}
+
+	/**
+	 * Persist one tool-set change pi declared as a system message before the
+	 * next request, anchored on the canonical context entry it follows. The
+	 * live transcript and the canonical projection list the same messages in
+	 * the same order, so the anchor is the context entry at the position of
+	 * the last non-system message before it. A change with no matching
+	 * position (a non-canonical follow-up reminder) is not recorded: a later
+	 * rebuild loses only its placement, and pi re-declares the difference.
+	 */
+	private async persistToolDeclaration(message: SystemMessage): Promise<void> {
+		if (!message.toolsAdded?.length && !message.toolsRemoved?.length) return;
+		const live = this.agentLoop.state.messages;
+		const index = live.lastIndexOf(message);
+		const preceding = (index >= 0 ? live.slice(0, index) : live).filter(
+			(candidate) => candidate.role !== 'system',
 		);
+		const conversation = await this.requireConversation();
+		const entries = buildConversationContextEntries(conversation, {
+			resolveAttachment: (attachment) => ({ data: '', mimeType: attachment.mimeType }),
+		});
+		const anchor = entries[preceding.length - 1];
+		if (!anchor || anchor.message.role !== preceding.at(-1)?.role) return;
+		await this.appendCanonical([
+			...(await this.leadingToolDeclarationRecords()),
+			{
+				...this.canonicalEnvelope('tool_declaration'),
+				type: 'tool_declaration',
+				afterEntryId: anchor.sourceEntry.id,
+				...(message.toolsAdded?.length ? { toolsAdded: message.toolsAdded } : {}),
+				...(message.toolsRemoved?.length ? { toolsRemoved: message.toolsRemoved } : {}),
+			},
+		]);
 	}
 
 	// ─── Model-turn recovery and compaction ───────────────────────────────────
@@ -6102,4 +6156,15 @@ function isPromptUsage(value: unknown): value is PromptUsage {
 		typeof (value as PromptUsage).output === 'number' &&
 		typeof (value as PromptUsage).totalTokens === 'number'
 	);
+}
+
+/** A folded `tool_declaration` change as the system message pi declared. */
+function toolDeclarationMessage(declaration: ToolDeclaration): SystemMessage {
+	return {
+		role: 'system',
+		content: '',
+		...(declaration.toolsAdded ? { toolsAdded: declaration.toolsAdded } : {}),
+		...(declaration.toolsRemoved ? { toolsRemoved: declaration.toolsRemoved } : {}),
+		timestamp: 0,
+	};
 }
