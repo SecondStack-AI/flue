@@ -28,7 +28,8 @@ Grant the SecondStack repository Actions read access to both packages before ado
 ## Persistence and rollback
 
 Pause new admissions and finish active work before replacing shard owners.
-New declaration/checkpoint formats must reject incompatible readers and writers and preserve old streams through a current-tool baseline.
+The fork reads version-1 and version-2 records, writes version-2 records, and preserves old streams through a current-tool baseline.
+Upstream version-1 readers reject newly written streams.
 Missing historical declarations cannot be reconstructed.
 Returning to upstream requires a compatible reader or a separately reviewed offline conversion with a backup and tested restore.
 An old image alone is not a rollback plan.
