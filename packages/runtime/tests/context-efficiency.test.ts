@@ -512,6 +512,66 @@ describe('compaction charge and failure atomicity', () => {
 });
 
 describe('generated environment preamble', () => {
+	it('keeps provider prefixes after real workspace edits, midnight and runtime reconstruction', async () => {
+		const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+		const { tmpdir } = await import('node:os');
+		const { start } = await import('../src/node/start.ts');
+		const { sqlite } = await import('../src/node/agent-execution-store.ts');
+		const { local } = await import('../src/node/local.ts');
+		const { init } = await import('../src/agent-client.ts');
+		const { useModel } = await import('../src/hooks/use-model.ts');
+		const { useSandbox } = await import('../src/hooks/use-sandbox.ts');
+		const { useEnvironmentPreamble } = await import('../src/hooks/use-environment-preamble.ts');
+		const folder = await mkdtemp(`${tmpdir()}/flue-workspace-prefix-`);
+		await writeFile(`${folder}/AGENTS.md`, 'Original workspace notes');
+		const faux = fauxProvider({
+			provider: 'workspace-prefix',
+			models: [{ id: 'test' }],
+			tokensPerSecond: 0,
+		});
+		const requests: TranscriptContext[] = [];
+		faux.setResponses(
+			[0, 1].map(() => (context) => {
+				requests.push(structuredClone(context));
+				return fauxAssistantMessage('done');
+			}),
+		);
+		function WorkspaceAgent() {
+			useModel('workspace-prefix/test');
+			useEnvironmentPreamble(false);
+			useSandbox(local({ cwd: folder }));
+			return 'Application-owned instructions';
+		}
+		const db = sqlite(`${folder}/state.sqlite`);
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date('2026-10-29T23:59:00Z'));
+		let runtime = await start({ agents: [WorkspaceAgent], providers: [faux.provider], db });
+		try {
+			await init(WorkspaceAgent, { id: 'workspace-prefix' }).read(
+				await init(WorkspaceAgent, { id: 'workspace-prefix' }).dispatch('first'),
+			);
+			await runtime.stop();
+			await writeFile(`${folder}/AGENTS.md`, 'Changed workspace notes');
+			await writeFile(`${folder}/created-after-first-turn.txt`, 'survives runtime reconstruction');
+			vi.setSystemTime(new Date('2026-10-30T00:01:00Z'));
+			runtime = await start({ agents: [WorkspaceAgent], providers: [faux.provider], db });
+			const instance = init(WorkspaceAgent, { id: 'workspace-prefix' });
+			await instance.read(await instance.dispatch('continue'));
+			expect(
+				requests[1]!.messages.slice(0, requests[0]!.messages.length).map(modelMessage),
+			).toEqual(requests[0]!.messages.map(modelMessage));
+			expect(JSON.stringify(requests)).not.toMatch(
+				/Original workspace notes|Changed workspace notes|created-after-first-turn|Date:/,
+			);
+			expect(await readFile(`${folder}/created-after-first-turn.txt`, 'utf8')).toBe(
+				'survives runtime reconstruction',
+			);
+		} finally {
+			await runtime.stop();
+			vi.useRealTimers();
+			await rm(folder, { recursive: true, force: true });
+		}
+	});
 	it('preserves upstream default and allows stable date-free application instructions', async () => {
 		vi.useFakeTimers();
 		try {
