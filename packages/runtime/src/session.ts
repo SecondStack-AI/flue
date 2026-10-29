@@ -4678,6 +4678,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				: (signal ?? this.scopeSignal);
 		return this.runExclusive(operation, async () => {
 			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
+			this.automaticCompactionBlocked = false;
 			this.activeOperationId = requestedOperationId ?? generateOperationId();
 			const operationId = this.activeOperationId;
 			const startedAt = Date.now();
@@ -5409,10 +5410,23 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			this.resourceRuntime?.setContextEpoch?.(entryId);
 			prospectiveEpoch = true;
 			const prospectiveRender = this.rerender?.();
+			const overrides = this.activeCallOverrides;
+			const prospectiveTools = prospectiveRender
+				? this.assembleModelTools(
+						this.createBuiltinToolGroups(
+							this.attachedEnv,
+							overrides?.model,
+							overrides?.thinkingLevel,
+							overrides?.activePackagedSkills,
+						),
+						overrides ? [...prospectiveRender.tools, ...overrides.tools] : prospectiveRender.tools,
+						overrides?.extraTools ?? [],
+					)
+				: this.agentLoop.state.tools;
 			const requestOverhead =
 				Math.ceil(
 					((prospectiveRender?.systemPrompt ?? this.agentLoop.state.systemPrompt).length +
-						JSON.stringify(this.agentLoop.state.tools.map(toToolDeclaration)).length +
+						JSON.stringify(prospectiveTools.map(toToolDeclaration)).length +
 						(prospectiveRender ? JSON.stringify(prospectiveRender.resources.snapshot).length : 0)) /
 						4,
 				) + 16;

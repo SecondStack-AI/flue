@@ -565,6 +565,53 @@ describe('provider transcript declaration replay', () => {
 });
 
 describe('owning instance compaction API', () => {
+	it('validates epoch-driven tool schemas before committing a new baseline', async () => {
+		const { start } = await import('../src/node/start.ts');
+		const { sqlite } = await import('../src/node/agent-execution-store.ts');
+		const { init } = await import('../src/agent-client.ts');
+		const { useModel } = await import('../src/hooks/use-model.ts');
+		const { useTool } = await import('../src/hooks/use-tool.ts');
+		const { useContextEpoch } = await import('../src/hooks/use-context-epoch.ts');
+		const faux = fauxProvider({
+			provider: 'epoch-fit',
+			models: [{ id: 'test', contextWindow: 10000, maxTokens: 4096 }],
+			tokensPerSecond: 0,
+		});
+		faux.setResponses([
+			fauxAssistantMessage('done'),
+			fauxAssistantMessage('done'),
+			fauxAssistantMessage('short summary'),
+			fauxAssistantMessage('done'),
+		]);
+		const epochs: Array<string | undefined> = [];
+		function EpochFitAgent() {
+			useModel('epoch-fit/test', { compaction: { reserveTokens: 1000, keepRecentTokens: 20 } });
+			const epoch = useContextEpoch();
+			epochs.push(epoch);
+			if (epoch)
+				useTool({ name: 'large', description: 'large schema '.repeat(5000), run: () => 'done' });
+			return 'Instruction';
+		}
+		const runtime = await start({
+			agents: [EpochFitAgent],
+			providers: [faux.provider],
+			db: sqlite(),
+		});
+		try {
+			const instance = init(EpochFitAgent, { id: 'epoch-fit' });
+			await instance.read(await instance.dispatch('older content '.repeat(200)));
+			await instance.read(await instance.dispatch('recent'));
+			await expect(instance.compact({ operationId: 'oversized-baseline' })).rejects.toThrow(
+				'working limit',
+			);
+			expect(epochs.some(Boolean)).toBe(true);
+			expect(epochs.at(-1)).toBeUndefined();
+			await instance.read(await instance.dispatch('continue'));
+			expect(epochs.at(-1)).toBeUndefined();
+		} finally {
+			await runtime.stop();
+		}
+	});
 	it('compacts without dispatching command text, renders current authority, and replays once', async () => {
 		const { start } = await import('../src/node/start.ts');
 		const { sqlite } = await import('../src/node/agent-execution-store.ts');
