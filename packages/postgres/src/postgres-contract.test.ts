@@ -10,17 +10,19 @@ const databases: PGlite[] = [];
 async function createStores() {
 	const db = new PGlite();
 	databases.push(db);
-	const query: PostgresQuery = async (sql, params) => (await db.query(sql, params)).rows;
+	const query: PostgresQuery = async (sql, params) =>
+		(await db.query<Record<string, unknown>>(sql, params)).rows;
 	const adapter = postgres({
 		query,
 		transaction: (run) =>
 			db.transaction((tx) =>
 				run({
-					query: async (sql, params) => (await tx.query(sql, params)).rows,
+					query: async (sql, params) => (await tx.query<Record<string, unknown>>(sql, params)).rows,
 				}),
 			),
 		close: () => db.close(),
 	});
+	if (adapter.migrate === undefined) throw new Error('Postgres adapter migration is missing');
 	await adapter.migrate();
 	return adapter.connect();
 }
