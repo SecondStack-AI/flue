@@ -355,6 +355,8 @@ export async function compact(
 		throw error;
 	}
 	observer.end('compaction', handle, response, undefined);
+	if (response.usage.output > maxTokens)
+		throw new Error('[flue:compaction] Summary exceeded requested output token limit.');
 	if (response.stopReason !== 'stop')
 		throw new Error(
 			`[flue:compaction] Summary did not complete: ${response.stopReason}${response.errorMessage ? ': ' + response.errorMessage : ''}`,

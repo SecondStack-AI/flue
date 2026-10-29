@@ -177,6 +177,15 @@ describe('compaction handoff contract', () => {
 		expect(JSON.stringify(payload)).not.toContain('secret-marker');
 		expect(payload.recent_messages_retained_unchanged[0].content).toBe('correction');
 	});
+	it('rejects a provider response exceeding the resolved model output limit', async () => {
+		const response = assistant([{ type: 'text', text: 'oversized summary' }]);
+		response.usage = { ...usage, output: 1001 };
+		vi.spyOn(getRuntimeModels(), 'completeSimple').mockResolvedValue(response);
+		const preparation = prepareCompaction([human('older'.repeat(200)), human('new')], settings)!;
+		await expect(
+			compact(preparation, { ...model, maxTokens: 1000 }, new AbortController().signal, observer),
+		).rejects.toThrow('output token limit');
+	});
 	it.each(['length', 'error', 'aborted'] as const)(
 		'rejects incomplete %s output',
 		async (stopReason) => {
