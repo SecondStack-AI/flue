@@ -2795,6 +2795,8 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				cc.keepRecentTokens ??
 				Math.max(0, Math.min(24000, Math.floor(((model?.contextWindow ?? 0) - reserveTokens) / 2))),
 			transformMessageText: cc.transformMessageText,
+			systemPrompt: cc.systemPrompt,
+			toolResultMaxChars: cc.toolResultMaxChars,
 		};
 	}
 
@@ -5407,8 +5409,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 					{ errorInfo: classifyError(abortError) },
 				);
 				terminalPending = false;
-				if (reason === 'manual') throw abortError;
-				return { compacted: false };
+				throw abortError;
 			}
 
 			const projectedTokens =
@@ -5528,26 +5529,30 @@ export class Session implements FlueSession, AgentSubmissionSession {
 					{ errorInfo: classifyError(error) },
 				);
 			}
-			// Explicit `session.compact()` calls must surface their own failure;
-			// automatic threshold/overflow compaction stays best-effort.
-			if (reason === 'manual') throw error;
-			return { compacted: false };
+			throw error;
 		} finally {
 			if (!committed && reason !== 'manual') this.automaticCompactionBlocked = true;
 			this.compactionAbortController = undefined;
 			if (!committed && prospectiveEpoch) {
-				this.resourceRuntime?.setContextEpoch?.(previousEpoch);
-				try {
-					this.rerender?.();
-				} catch (restoreError) {
-					if (compactionFailure !== undefined)
-						throw new AggregateError(
-							[compactionFailure, restoreError],
-							`Compaction failed: ${String(compactionFailure)}; baseline restore failed: ${String(restoreError)}`,
-						);
-					throw restoreError;
-				}
+				this.restoreCompactionContext(previousEpoch, compactionFailure);
 			}
+		}
+	}
+
+	private restoreCompactionContext(
+		previousEpoch: string | undefined,
+		compactionFailure: unknown,
+	): void {
+		try {
+			this.resourceRuntime?.setContextEpoch?.(previousEpoch);
+			this.rerender?.();
+		} catch (restoreError) {
+			if (compactionFailure !== undefined)
+				throw new AggregateError(
+					[compactionFailure, restoreError],
+					`Compaction failed: ${String(compactionFailure)}; baseline restore failed: ${String(restoreError)}`,
+				);
+			throw restoreError;
 		}
 	}
 
