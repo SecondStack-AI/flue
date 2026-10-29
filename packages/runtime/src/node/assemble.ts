@@ -166,6 +166,8 @@ export async function assembleNodeAgentRuntime(
 		createAgentAdmission: (agentName, instanceId) =>
 			coordinator.createAdmission(agentName, instanceId),
 		abortAgentInstance: (agentName, instanceId) => coordinator.abortInstance(agentName, instanceId),
+		compactAgentInstance: (agentName, instanceId, options) =>
+			coordinator.compactInstance(agentName, instanceId, options),
 		conversationStreamStore,
 		attachmentStore,
 	};
