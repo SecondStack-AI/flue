@@ -36,4 +36,5 @@ An old image alone is not a rollback plan.
 
 Existing summary text is rendered as plain text instead of XML-escaped text, causing a one-time prefix change for old compacted streams.
 The fit contract requires positive model context and output limits; unknown limits fail rather than use upstream fallback estimates.
+Retained user and tool-result images each use a fixed 500-token compaction estimate, independent of provider and image encoding.
 Direct instance dispatch during compaction returns `SessionBusyError`; callers that schedule non-Chat work must retry this busy result.

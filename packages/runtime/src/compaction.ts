@@ -82,6 +82,8 @@ export function deriveCompactionDefaults(input: {
 
 // ─── Token Estimation ───────────────────────────────────────────────────────
 
+const COMPACTION_IMAGE_ESTIMATED_TOKENS = 500;
+
 export function calculateContextTokens(usage: Usage): number {
 	return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 }
@@ -100,6 +102,8 @@ function estimateTokens(message: AgentMessage): number {
 				for (const block of content) {
 					if (block.type === 'text') {
 						chars += block.text.length;
+					} else if (block.type === 'image') {
+						chars += COMPACTION_IMAGE_ESTIMATED_TOKENS * 4;
 					}
 				}
 			}
@@ -124,8 +128,7 @@ function estimateTokens(message: AgentMessage): number {
 				if (block.type === 'text') {
 					chars += block.text.length;
 				} else if (block.type === 'image') {
-					// Approximate token cost for an image block
-					chars += 4800;
+					chars += COMPACTION_IMAGE_ESTIMATED_TOKENS * 4;
 				}
 			}
 			return Math.ceil(chars / 4);
