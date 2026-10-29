@@ -33,3 +33,7 @@ Upstream version-1 readers reject newly written streams.
 Missing historical declarations cannot be reconstructed.
 Returning to upstream requires a compatible reader or a separately reviewed offline conversion with a backup and tested restore.
 An old image alone is not a rollback plan.
+
+Existing summary text is rendered as plain text instead of XML-escaped text, causing a one-time prefix change for old compacted streams.
+The fit contract requires positive model context and output limits; unknown limits fail rather than use upstream fallback estimates.
+Direct instance dispatch during compaction returns `SessionBusyError`; callers that schedule non-Chat work must retry this busy result.
