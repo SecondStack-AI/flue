@@ -1032,7 +1032,7 @@ export function createNodeAgentCoordinator(options: {
 				)
 					throw new AgentInstanceNotFoundError({ id: instanceId });
 				if (options.uid !== undefined && options.uid !== state.uid)
-					throw new Error('[flue] Instance compaction incarnation does not match.');
+					throw new AgentInstanceNotFoundError({ id: instanceId });
 				const ctx = createContext({
 					id: instanceId,
 					agentName,

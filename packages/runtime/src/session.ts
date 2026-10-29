@@ -738,6 +738,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	}
 	private envRuntime: SandboxRuntime | undefined;
 	private compactionAbortController: AbortController | undefined;
+	private operationAbortController: AbortController | undefined;
 	private modelRetryAbortController: AbortController | undefined;
 	private eventCallback: FlueEventInputCallback | undefined;
 	private agentTools: ToolDefinition[];
@@ -3840,6 +3841,8 @@ export class Session implements FlueSession, AgentSubmissionSession {
 					};
 				const outcome = await this.runCompaction('manual', options, recordId);
 				if (!outcome.compacted) {
+					if (this.operationAbortController?.signal.aborted)
+						throw abortErrorFor(this.operationAbortController.signal);
 					await this.appendCanonical([
 						{
 							...this.canonicalEnvelope('compaction_noop', recordId),
@@ -3870,6 +3873,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	}
 
 	abort(reason?: unknown): void {
+		this.operationAbortController?.abort(reason);
 		this.agentLoop.abort();
 		this.compactionAbortController?.abort(reason);
 		this.modelRetryAbortController?.abort(reason);
@@ -4679,6 +4683,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		return this.runExclusive(operation, async () => {
 			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
 			this.automaticCompactionBlocked = false;
+			this.operationAbortController = new AbortController();
 			this.activeOperationId = requestedOperationId ?? generateOperationId();
 			const operationId = this.activeOperationId;
 			const startedAt = Date.now();
@@ -4736,6 +4741,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				operationSignal?.removeEventListener('abort', onAbort);
 				this.emit({ type: 'idle' });
 				this.activeOperationId = undefined;
+				this.operationAbortController = undefined;
 				this.activeAgentInput = undefined;
 			}
 		});
@@ -5281,7 +5287,9 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		recordId?: string,
 	): Promise<CompactResult> {
 		if (reason === 'threshold' && this.automaticCompactionBlocked) return { compacted: false };
-		this.compactionAbortController = new AbortController();
+		this.compactionAbortController = this.operationAbortController ?? new AbortController();
+		if (this.compactionAbortController.signal.aborted)
+			throw abortErrorFor(this.compactionAbortController.signal);
 		const messagesBefore = this.agentLoop.state.messages.length;
 		const compactionStartMs = Date.now();
 		// True between `compaction_start` and its terminal `compaction` event,
@@ -5290,6 +5298,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		let committed = false;
 		let previousEpoch: string | undefined;
 		let prospectiveEpoch = false;
+		let compactionFailure: unknown;
 
 		try {
 			const sessionModel = options.model
@@ -5503,6 +5512,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 
 			return { compacted: true, usage: result.usage };
 		} catch (error) {
+			compactionFailure = error;
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			this.internalLog('error', `[flue:compaction] Failed: ${errorMessage}`, { error });
 			if (terminalPending) {
@@ -5523,12 +5533,21 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			if (reason === 'manual') throw error;
 			return { compacted: false };
 		} finally {
-			if (!committed && prospectiveEpoch) {
-				this.resourceRuntime?.setContextEpoch?.(previousEpoch);
-				this.rerender?.();
-			}
 			if (!committed && reason !== 'manual') this.automaticCompactionBlocked = true;
 			this.compactionAbortController = undefined;
+			if (!committed && prospectiveEpoch) {
+				this.resourceRuntime?.setContextEpoch?.(previousEpoch);
+				try {
+					this.rerender?.();
+				} catch (restoreError) {
+					if (compactionFailure !== undefined)
+						throw new AggregateError(
+							[compactionFailure, restoreError],
+							`Compaction failed: ${String(compactionFailure)}; baseline restore failed: ${String(restoreError)}`,
+						);
+					throw restoreError;
+				}
+			}
 		}
 	}
 
