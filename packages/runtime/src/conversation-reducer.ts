@@ -1182,7 +1182,7 @@ function pathToContextEntries(
 			index += 1;
 			continue;
 		}
-		const message = resolveMessageAttachments(entry, options);
+		const message = projectConversationMessage(entry, options);
 		if (message.role === 'signal') {
 			messages.push({
 				message: createUserContextMessage(renderSignalMessage(message), entry.timestamp),
@@ -1221,7 +1221,7 @@ function pathToContextEntries(
 				while (resultIndex < path.length) {
 					const result = path[resultIndex];
 					if (result?.type !== 'message' || result.message.role !== 'toolResult') break;
-					results.push(resolveMessageAttachments(result, options) as ToolResultMessage);
+					results.push(projectConversationMessage(result, options) as ToolResultMessage);
 					resultIndex += 1;
 				}
 				if (isCompleteToolBatch(toolCalls, results)) {
@@ -1520,7 +1520,7 @@ function toolResultMessage(
 	} as ToolResultMessage as AgentMessage;
 }
 
-function resolveMessageAttachments(
+function projectConversationMessage(
 	entry: ReducedMessageEntry,
 	options: ConversationProjectionOptions,
 ): AgentMessage {
@@ -1553,7 +1553,13 @@ function resolveMessageAttachments(
 	if (!manifestProjected && attachments.length > 0) {
 		content.unshift({ type: 'text', text: attachmentManifest('', attachments) });
 	}
-	return { ...message, content } as AgentMessage;
+	return {
+		...message,
+		content,
+		...(message.role === 'toolResult' && entry.toolOutput
+			? { details: { customTool: message.toolName, output: entry.toolOutput.value } }
+			: {}),
+	} as AgentMessage;
 }
 
 function attachmentManifest(text: string, attachments: readonly AttachmentRef[]): string {

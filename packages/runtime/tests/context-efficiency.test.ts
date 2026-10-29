@@ -785,6 +785,9 @@ describe('lazy declarations across checkpoints', () => {
 			runtime = await start({ agents: [LazyAgent], providers: [faux.provider], db });
 			instance = init(LazyAgent, { id: 'persistent' });
 			await instance.read(await instance.dispatch('read next'));
+			expect(requests[2]!.messages.find((message) => message.role === 'toolResult')).toMatchObject({
+				details: { customTool: 'discover', output: 'found' },
+			});
 			const stablePrefix = (request: TranscriptContext, length: number) =>
 				request.messages.slice(0, length).map(modelMessage);
 			expect(stablePrefix(requests[2]!, requests[1]!.messages.length)).toEqual(
