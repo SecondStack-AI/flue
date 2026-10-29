@@ -1,0 +1,611 @@
+{
+  "checkedAt": "2026-10-29T04:29:04.025843+00:00",
+  "packages": [
+    {
+      "name": "just-bash",
+      "version": "3.2.0",
+      "published": "2026-07-27T04:53:00.641Z",
+      "integrity": "sha512-hRTLLWBXCKuosjaNFJR7uPYBza+T2vjG3NdPBz4wxlctlnxwrbLjtLQf6RtSKmy/jzNJ6/URCtvxrXjy6yFGeQ=="
+    },
+    {
+      "name": "valibot",
+      "version": "1.4.2",
+      "published": "2026-06-28T15:16:53.427Z",
+      "integrity": "sha512-gjdCvJ6d3RyHAneqxMYMW9QMCwYMb3jpOO0IyHZV1bnRHFBHrX3VkIILt5XYR0WhwHiH7Mty8ovuPZ/O3gamrg=="
+    },
+    {
+      "name": "@biomejs/biome",
+      "version": "2.5.6",
+      "published": "2026-07-28T09:53:25.098Z",
+      "integrity": "sha512-lxVNjv7UF6KfhMJfL9gaUHbWdJdHbsAj6OSmwSYNdhRuG67NxNQ4Xdvh3TUxsSK9sBzJBQhEJj3AopmmNJ5pSA=="
+    },
+    {
+      "name": "@types/node",
+      "version": "26.1.2",
+      "published": "2026-07-27T17:32:14.992Z",
+      "integrity": "sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg=="
+    },
+    {
+      "name": "bgproc",
+      "version": "0.3.0",
+      "published": "2026-03-11T17:59:09.909Z",
+      "integrity": "sha512-UHwNISwxVEQtxt8bWNuirzYkliKry5ABcCFHOKE6580Bpil/E9lx/7T3fJhXK84kVviRl5bUD4M6sALYQLAD0A=="
+    },
+    {
+      "name": "knip",
+      "version": "6.29.0",
+      "published": "2026-07-22T12:12:06.686Z",
+      "integrity": "sha512-A3kXqSBky1tWBAqiU9srdtu0Larhzkuyor0aD/gg+ToiqyBncCCs2Q60sLsxmcKhV0OsKss9LV0hMPpwLv711Q=="
+    },
+    {
+      "name": "prettier",
+      "version": "3.9.6",
+      "published": "2026-07-21T05:51:53.987Z",
+      "integrity": "sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g=="
+    },
+    {
+      "name": "turbo",
+      "version": "2.10.7",
+      "published": "2026-07-25T15:22:07.536Z",
+      "integrity": "sha512-GHx6WExIFSKNJ5qMlzDpXBXlu9ApxaMjqxAVrCNcW94xf/+uqgIz41SAuRUMbXva2ExNAaY/h8V0q90SWSzmRw=="
+    },
+    {
+      "name": "typescript",
+      "version": "7.0.2",
+      "published": "2026-07-08T15:55:18.431Z",
+      "integrity": "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="
+    },
+    {
+      "name": "@astrojs/mdx",
+      "version": "7.0.5",
+      "published": "2026-07-28T16:50:59.554Z",
+      "integrity": "sha512-wEM/HH1RiEntyPVagdiF+yArzfcYLKBB0C1RZspVidKZ97rRMbaqP1Nbl/GR0sJs8zwaceqxRymw8aOKKJRdYw=="
+    },
+    {
+      "name": "@paper-design/shaders",
+      "version": "0.0.78",
+      "published": "2026-07-27T11:33:57.710Z",
+      "integrity": "sha512-xOxV7koSzzh47G34I7uE3MASzli28k6+V35dlVrjMu270SFs0t8zeb4F/XTUU0BOXoHqIjKiGu6DnqkxPlsTcw=="
+    },
+    {
+      "name": "@tailwindcss/vite",
+      "version": "4.3.3",
+      "published": "2026-07-16T12:04:06.316Z",
+      "integrity": "sha512-yYU8cogLeSh/ms2jh8Fj7jaba/EWa7Ja6GoUqYZaraEuCI5YS6ms6ObZgjjedm+jm6XZjdNRWBpPP6Z86oOxcw=="
+    },
+    {
+      "name": "astro",
+      "version": "7.1.6",
+      "published": "2026-07-29T14:21:53.353Z",
+      "integrity": "sha512-83x9rYbHazMaZkYrAFRVZXSQx2moFkz0F7cjTDUF3GWfS0a3p2vZXG1ZdhV86rStHApQCodBJW+XTD37xISIrQ=="
+    },
+    {
+      "name": "tailwindcss",
+      "version": "4.3.3",
+      "published": "2026-07-16T12:03:35.267Z",
+      "integrity": "sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ=="
+    },
+    {
+      "name": "pagefind",
+      "version": "1.5.2",
+      "published": "2026-04-12T12:46:44.475Z",
+      "integrity": "sha512-XTUaK0hXMCu2jszWE584JGQT7y284TmMV9l/HX3rnG5uo3rHI/uHU56XTyyyPFjeWEBxECbAi0CaFDJOONtG0Q=="
+    },
+    {
+      "name": "vite",
+      "version": "8.1.5",
+      "published": "2026-07-16T06:51:13.015Z",
+      "integrity": "sha512-7ULLwsCdYx/nRyrpiEwvqb5TFHrMVZyBt+rg/OAXT7rgj/z+DtTDyKFeLAdDkubDVDKD8jOsndmy7m55XcfUsw=="
+    },
+    {
+      "name": "wrangler",
+      "version": "4.116.0",
+      "published": "2026-07-30T16:31:19.682Z",
+      "integrity": "sha512-wP1PXxH5KJajfGEjty0NNqyxAirTFvMZpGyB5CRqEIiY0fL/SiCKtIYAJB9HXq0MP0sMXB/i/YSls+WObahAhw=="
+    },
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "1.1.0",
+      "published": "2026-10-07T22:12:08.670Z",
+      "integrity": "sha512-1T7LAkc/5Bvc0v6w4vAGVdCrli0o/E0pEmYKTnixu95vSFArBjvbhS/G4ZwI0RUePgf0Imcu0VyqlM4EcXxqfw=="
+    },
+    {
+      "name": "vitest",
+      "version": "4.1.10",
+      "published": "2026-07-06T06:44:42.684Z",
+      "integrity": "sha512-R9jUTe5S4Qb0HCd4TNqpC7oGcrMssMRGXLW80ubjWsW9VH5GF8y1Y0SFLY9AbqSk6nt0PnOx4H4WNJYZ13GUPw=="
+    },
+    {
+      "name": "@shadcn/react",
+      "version": "0.2.1",
+      "published": "2026-07-08T08:11:56.169Z",
+      "integrity": "sha512-5krgi3dRMKb5jH6a+qPzVJUy/54s0kKE4Rw4LjDfLqOdVQTWKUgxWf1kW8r912I0jX/Lzxqc+pgjkjWxUIK5BQ=="
+    },
+    {
+      "name": "@tanstack/react-router",
+      "version": "1.170.18",
+      "published": "2026-07-13T21:35:09.791Z",
+      "integrity": "sha512-wpbGYZEp/fmz1q4bn7BD8VZ+/VZ7GBqSJv5V969pU+chP8y7dquWDmKTFMohvUegb9lg12m1uPVvD6kB2wORvQ=="
+    },
+    {
+      "name": "class-variance-authority",
+      "version": "0.7.1",
+      "published": "2024-11-26T08:20:34.604Z",
+      "integrity": "sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg=="
+    },
+    {
+      "name": "clsx",
+      "version": "2.1.1",
+      "published": "2024-04-23T05:26:04.645Z",
+      "integrity": "sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA=="
+    },
+    {
+      "name": "lucide-react",
+      "version": "1.27.0",
+      "published": "2026-07-25T21:03:02.144Z",
+      "integrity": "sha512-rJicGl/3Fly/E0rOH1YmPZ6e49JCnKknh1ox1vpHnkfjujAkKA6sqUZvH3MTAaXXjgexyUwgNwTJzTtYuAFYJw=="
+    },
+    {
+      "name": "next-themes",
+      "version": "0.4.6",
+      "published": "2025-03-11T21:02:05.882Z",
+      "integrity": "sha512-pZvgD5L0IEvX5/9GWyHMf3m8BKiVQwsCMHfoFosXtXBMnaS0ZnIJ9ST4b4NqLVKDEm8QBxoNNGNaBv2JNF6XNA=="
+    },
+    {
+      "name": "radix-ui",
+      "version": "1.6.7",
+      "published": "2026-07-24T23:51:30.916Z",
+      "integrity": "sha512-QBdhh1arIEUvPC0dQ5+nwWAxt7+N+oP/9jPwjJkGFoSk/sqxg32gJtSXGtFh8frAIcS6oC9cx2Q+7KYCQLOAeA=="
+    },
+    {
+      "name": "react",
+      "version": "19.2.8",
+      "published": "2026-07-21T15:41:28.716Z",
+      "integrity": "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="
+    },
+    {
+      "name": "react-dom",
+      "version": "19.2.8",
+      "published": "2026-07-21T15:41:41.267Z",
+      "integrity": "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ=="
+    },
+    {
+      "name": "sonner",
+      "version": "2.0.7",
+      "published": "2025-08-02T19:50:00.471Z",
+      "integrity": "sha512-W6ZN4p58k8aDKA4XPcx2hpIQXBRAgyiWVkYhT7CvK6D3iAu7xjvVyhQHg2/iaKJZ1XVJ4r7XuwGL+WGEK37i9w=="
+    },
+    {
+      "name": "streamdown",
+      "version": "2.5.0",
+      "published": "2026-03-17T17:35:05.216Z",
+      "integrity": "sha512-/tTnURfIOxZK/pqJAxsfCvETG/XCJHoWnk3jq9xLcuz6CSpnjjuxSRBTTL4PKGhxiZQf0lqPxGhImdpwcZ2XwA=="
+    },
+    {
+      "name": "tailwind-merge",
+      "version": "3.6.0",
+      "published": "2026-05-10T12:56:43.142Z",
+      "integrity": "sha512-uxL7qAVQriqRQPAyK3pj66VqskWqoZ37PW94jwOTwNfq/z9oyu1V+eqrZqtR2+fCiXdYOZe/Modt8GtvqNzu+w=="
+    },
+    {
+      "name": "@types/react",
+      "version": "19.2.17",
+      "published": "2026-06-05T20:10:24.692Z",
+      "integrity": "sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw=="
+    },
+    {
+      "name": "@types/react-dom",
+      "version": "19.2.3",
+      "published": "2025-11-12T04:37:39.524Z",
+      "integrity": "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ=="
+    },
+    {
+      "name": "@vitejs/plugin-react",
+      "version": "6.0.4",
+      "published": "2026-07-22T04:16:52.683Z",
+      "integrity": "sha512-XcCQz0TBpBgljhj0gMuuDj49i6Ytqh5q1osT/Gp5uAVJUCTWxyskk/l1jwYYiu2xcNHHipdMz40EGfM1VdamVg=="
+    },
+    {
+      "name": "oxlint",
+      "version": "1.76.0",
+      "published": "2026-07-27T15:58:10.918Z",
+      "integrity": "sha512-6QoFioEU4fNdiUx/2Eo6TRd6NG7H7njnRCz8rhB66cZmMHDTqcm1Rjvl8Wry+ZTQMBAmyb4Mlf62Mk5X+eHSOw=="
+    },
+    {
+      "name": "tw-animate-css",
+      "version": "1.4.0",
+      "published": "2025-09-24T05:25:53.055Z",
+      "integrity": "sha512-7bziOlRqH0hJx80h/3mbicLW7o8qLsH5+RaLR2t+OHM3D0JlWGODQKQ4cxbK7WlvmUxpcj6Kgu6EKqjrGFe3QQ=="
+    },
+    {
+      "name": "@cloudflare/sandbox",
+      "version": "0.12.4",
+      "published": "2026-07-21T11:13:32.107Z",
+      "integrity": "sha512-0gpkd+a58Q5aGjgXvLFZSdIDAZpvh89QlaiHBpTtkDZWqHPKfyISV76/pIUzzo9ACJzVIpUO8hNv2X+LFTTiRQ=="
+    },
+    {
+      "name": "hono",
+      "version": "4.12.32",
+      "published": "2026-07-24T08:55:53.101Z",
+      "integrity": "sha512-XcuyW9qE2kJn07PkecMOBd5Vq/hMy7mmGw+idz1yblbg9N17ijJODrvPkn7/dwL3Kulj8LcRJ69DLOWf91dRUg=="
+    },
+    {
+      "name": "@cloudflare/vite-plugin",
+      "version": "1.49.0",
+      "published": "2026-07-30T16:28:10.749Z",
+      "integrity": "sha512-r8w3fwkLPfiwG1ksvDqa82fcT//skvNWXe3nMcZqLsShexrecTkJs1ZK41YmKQP+DH2J1ggASoizmBTb1f7hQg=="
+    },
+    {
+      "name": "@cloudflare/workers-types",
+      "version": "5.20260731.1",
+      "published": "2026-07-31T01:16:25.508Z",
+      "integrity": "sha512-ly+eua642FCR2nbQGi/OxqlVaJI3fNdyqK7G4u6jWCAZ4WYhOBvZWyf0M7s5zurWbNQW3YjelOxuKqR0zYK90w=="
+    },
+    {
+      "name": "braintrust",
+      "version": "3.25.0",
+      "published": "2026-07-27T08:50:23.915Z",
+      "integrity": "sha512-0BIk3RDO9nLcvx4C7zaVJV0NfepZlJGi+K4jjUA/D8M9qq6YpCAP2gnBZr4UHAju8+t2Rl7MINim05K0BfaA9Q=="
+    },
+    {
+      "name": "@chat-adapter/github",
+      "version": "4.35.0",
+      "published": "2026-07-24T21:27:46.380Z",
+      "integrity": "sha512-fv7Pezi/ymCyzbvXr3zY5UA/7DOxcParlD9ffo9Z3eIpCcVCbavVms858o3yzY77BX+XpErpS7Zxlpc+9nm80Q=="
+    },
+    {
+      "name": "@chat-adapter/state-memory",
+      "version": "4.35.0",
+      "published": "2026-07-24T21:27:52.541Z",
+      "integrity": "sha512-qfSdR34Nox1Fcv8J6GLAX03VOuS3jka6ikFdVYBIOssh9OWL/NvjGGmuGwLI8/zmrPBjz0ZUStOxiyJAc1EqZw=="
+    },
+    {
+      "name": "chat",
+      "version": "4.35.0",
+      "published": "2026-07-24T21:27:53.693Z",
+      "integrity": "sha512-IUbdgTBvgs/XYhKcpKGrpmZgcl8KcA5NZ+eOww+0rBdhPf+95INjcUauQTk5e48UI1V4PRg9stToPsT4vle07g=="
+    },
+    {
+      "name": "@cloudflare/computer",
+      "version": "0.1.1",
+      "published": "2026-08-03T13:01:22.482Z",
+      "integrity": "sha512-4xWx5yX+y5MyNhtIK9N6LcyBsbzGdaxGbhfZdh51zRWRfdkI8OhL2ftBCReqaR6HD7we+Yg0rEihwBETrmkbmg=="
+    },
+    {
+      "name": "@platformatic/vfs",
+      "version": "0.4.0",
+      "published": "2026-04-20T16:47:29.327Z",
+      "integrity": "sha512-JwRxSIG63e/VaDSkYXkSBajySt5MJzxYIKuknYda28fhhmJMqyUGf5rbKrGW+vO9L83nIjQH3+YI12fp7EKICQ=="
+    },
+    {
+      "name": "@discordjs/rest",
+      "version": "2.6.3",
+      "published": "2026-07-19T15:59:45.232Z",
+      "integrity": "sha512-wvOylxNYJkwKjctS/Mn5GP1w9r3/rzyH+ThD1JlAca6zEdlHs8QWBBUQJpU5Q+W6DoIj/Ljh1IPlZs7hTU+UAg=="
+    },
+    {
+      "name": "@cloudflare/vitest-pool-workers",
+      "version": "0.19.1",
+      "published": "2026-07-30T16:26:10.805Z",
+      "integrity": "sha512-YzAJGOZNap12xefPgc7y74v2C1VcabPqn254wPjfgsleizy9Jj2nrvDjFnUAxoNzyiBi8p4ya8qDjA/fLOpqlQ=="
+    },
+    {
+      "name": "@octokit/rest",
+      "version": "22.0.1",
+      "published": "2025-10-31T20:59:36.519Z",
+      "integrity": "sha512-Jzbhzl3CEexhnivb1iQ0KJ7s5vvjMWcmRtq5aUsKmKDrRW6z3r84ngmiFKFvpZjpiU/9/S6ITPFRpn5s/3uQJw=="
+    },
+    {
+      "name": "jose",
+      "version": "6.2.5",
+      "published": "2026-07-29T23:05:27.563Z",
+      "integrity": "sha512-2E5L2yRp03FnwreJLJX8/r7mHiZICCf8kG7fAsTWkSQTDAcc46NIZoQLKy+EJ8sPoJlxyS4OQR5H70LjIZZlIQ=="
+    },
+    {
+      "name": "@daytona/sdk",
+      "version": "0.202.0",
+      "published": "2026-07-29T14:57:53.233Z",
+      "integrity": "sha512-linF36q79rKoXu76q76i+cGcAqxCUxF4niCwATii60LAyfa7RO6t9eq8fF/R/Q4vGB4AEB4cqV603FkvMb7lcQ=="
+    },
+    {
+      "name": "intercom-client",
+      "version": "7.0.3",
+      "published": "2026-02-02T18:32:03.987Z",
+      "integrity": "sha512-2rsNxBNqDqA0rZ0E/VsWa+/Ao+/nOxKNj9P7gUiQoOGY88eULTJUNtT9oNnT4Dq2+6dr0vvvo+I8ZNzN30Xj7A=="
+    },
+    {
+      "name": "@linear/sdk",
+      "version": "88.3.0",
+      "published": "2026-07-22T23:01:56.989Z",
+      "integrity": "sha512-F3bTsXQBDZja/UT+whtKAzHNPk8zTwoxq2Zs5tgbbHQLC3kueMOyHKO/u2RAYjxCKu3XtqB3vV0/6P/EqO+pOw=="
+    },
+    {
+      "name": "croner",
+      "version": "10.0.1",
+      "published": "2026-02-01T20:49:29.981Z",
+      "integrity": "sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g=="
+    },
+    {
+      "name": "@notionhq/client",
+      "version": "5.23.3",
+      "published": "2026-07-29T14:30:52.164Z",
+      "integrity": "sha512-Uk0ycO+u6+iueoE/eK9Aa/DGWd2tZ9ymvGF/MXcfxXXL+AS2JYWm1ols19rEk5qOdZ0l2KYc6zThx0iXQ3QhpQ=="
+    },
+    {
+      "name": "@hono/node-server",
+      "version": "2.0.12",
+      "published": "2026-07-26T05:02:01.126Z",
+      "integrity": "sha512-eWpQYr67tqJLeaSUl0Q+TquuYfUdTibpOJlUMV2FfUP7+KqCC5TufnwnlXL6mobZBJbGAYRd7ZvEBDCbLInjhg=="
+    },
+    {
+      "name": "resend",
+      "version": "6.18.1",
+      "published": "2026-07-28T12:36:30.367Z",
+      "integrity": "sha512-XN8XIaDdKF+ziSQ3K23ndUcyhP7U3ze2gky6SPgYkuAOq54mH4Wdhwm7QylEQ3zlz0NzdX7/l1AgmJUZbdPI/Q=="
+    },
+    {
+      "name": "@opentelemetry/api",
+      "version": "1.9.1",
+      "published": "2026-03-25T15:53:54.092Z",
+      "integrity": "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q=="
+    },
+    {
+      "name": "@sentry/node",
+      "version": "10.69.0",
+      "published": "2026-07-29T11:19:19.205Z",
+      "integrity": "sha512-xEXA1YGIiTZbrW6MWV34uS6JGQuQg2ijTI0zed+FsJb9JZKPYel/GZK8Km26vfTVb+yCXFmWZNBesKegNcVdzg=="
+    },
+    {
+      "name": "@shopify/admin-api-client",
+      "version": "1.1.2",
+      "published": "2026-03-11T19:02:41.940Z",
+      "integrity": "sha512-sV5gS8x4kj0KLULlOJkoBzm+tu6tn+1PCK9a6inySv5qtzmf/JxDWtLgaW9vRXeXHo/Sl/p3mBWhY3//fKA8iw=="
+    },
+    {
+      "name": "@slack/web-api",
+      "version": "8.0.0",
+      "published": "2026-07-14T17:55:24.549Z",
+      "integrity": "sha512-ORx3XQryQPq2Jnxv5giSKXVoQRUeylrrymIR2S9fPzLjPcCts8RayMeBSZMcpfpAqp6fnBRuPW2UB6dUPUTEZA=="
+    },
+    {
+      "name": "stripe",
+      "version": "22.4.0",
+      "published": "2026-07-29T23:38:17.675Z",
+      "integrity": "sha512-LVJ+tcSYeqOSnXr3i+Kz2tZ7y0crLLdP2uwD/4wccrmEVyn0g/Heo0pF7as7rxS/sOjJzrb1lxgZY0Y0Dx1pSA=="
+    },
+    {
+      "name": "grammy",
+      "version": "1.45.1",
+      "published": "2026-07-17T10:18:26.210Z",
+      "integrity": "sha512-Y4VL/hqJMZZxwlUr5ZgM68CFu2iIeEkNLR1cY3+Ww68CIvWARDsoXFix7+31rmyC0+7L85ZI+Pq3E5JSG5+nLQ=="
+    },
+    {
+      "name": "vitest-evals",
+      "version": "0.15.0",
+      "published": "2026-07-16T22:17:58.315Z",
+      "integrity": "sha512-bOYALQdLXKYFRCV8aQ+yLeH7XkmYsTxUWQxLHzJdIEcIBx2v/kPgG3Zg6m231jMCphuoM6xH4YQB3+0pDP7LLw=="
+    },
+    {
+      "name": "@kapso/whatsapp-cloud-api",
+      "version": "0.2.3",
+      "published": "2026-07-15T02:04:53.826Z",
+      "integrity": "sha512-qYZbxBvX6kX7I7dI0PX1W6TWUYQkJKXnf7UqmeWlYALIgsiP5CvFvH45jsWrdjdUPwK1emsyIuHKReDBd7j/Sg=="
+    },
+    {
+      "name": "lossless-json",
+      "version": "4.3.0",
+      "published": "2025-10-03T10:08:51.127Z",
+      "integrity": "sha512-ToxOC+SsduRmdSuoLZLYAr5zy1Qu7l5XhmPWM3zefCZ5IcrzW/h108qbJUKfOlDlhvhjUK84+8PSVX0kxnit0g=="
+    },
+    {
+      "name": "@vercel/detect-agent",
+      "version": "1.2.3",
+      "published": "2026-04-17T02:30:40.583Z",
+      "integrity": "sha512-VYNCgUc0nOmC4WJmWw9GkrKdfr8Zl4/rxhC5SvgacBgxiW9W/9NRttUoHHXV8xdII3MaRgkZZVX8Ikzc/Jmjag=="
+    },
+    {
+      "name": "cac",
+      "version": "7.0.0",
+      "published": "2026-02-27T14:52:29.649Z",
+      "integrity": "sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ=="
+    },
+    {
+      "name": "minisearch",
+      "version": "7.2.0",
+      "published": "2025-09-16T12:42:12.453Z",
+      "integrity": "sha512-dqT2XBYUOZOiC5t2HRnwADjhNS2cecp9u+TJRiJ1Qp/f5qjkeT5APcGPjHw+bz89Ms8Jp+cG4AlE+QZ/QnDglg=="
+    },
+    {
+      "name": "picocolors",
+      "version": "1.1.1",
+      "published": "2024-10-16T18:20:03.921Z",
+      "integrity": "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="
+    },
+    {
+      "name": "prompts",
+      "version": "2.4.2",
+      "published": "2021-10-07T21:23:57.263Z",
+      "integrity": "sha512-NxNv/kLguCA7p3jE8oL2aEBsrJWgAakBpgmgK6lpPWV+WuOmY6r2/zbAVnP+T8bQlA0nzHXSJSJW0Hq7ylaD2Q=="
+    },
+    {
+      "name": "ulidx",
+      "version": "2.4.1",
+      "published": "2024-08-25T18:44:04.012Z",
+      "integrity": "sha512-xY7c8LPyzvhvew0Fn+Ek3wBC9STZAuDI/Y5andCKi9AX6/jvfaX45PhsDX8oxgPL0YFp0Jhr8qWMbS/p9375Xg=="
+    },
+    {
+      "name": "@types/prompts",
+      "version": "2.4.9",
+      "published": "2023-11-21T00:49:38.204Z",
+      "integrity": "sha512-qTxFi6Buiu8+50/+3DGIWLHM6QuWsEKugJnnP6iv2Mc4ncxE4A/OJkjuVOA+5X0X1S/nq5VJRa8Lu+nwcvbrKA=="
+    },
+    {
+      "name": "tsdown",
+      "version": "0.22.14",
+      "published": "2026-07-23T18:24:29.579Z",
+      "integrity": "sha512-ule7Y+fsAN2iZbLDoo7C4KYljFJNJJ+fLshyn+9gozeTspVersWHxwdGB+Dm2hzA38s6muFnUTl0jK3vJm9ifQ=="
+    },
+    {
+      "name": "tsx",
+      "version": "4.23.1",
+      "published": "2026-07-13T03:13:33.471Z",
+      "integrity": "sha512-GQHnkIfxyx1wYCOS/wonik5MVRZU9hi1TEZmzGZSCJB1y9YgoZ8H6itNE/u4suE+yLmOzuE4E5S4TZ/ZX2wcWQ=="
+    },
+    {
+      "name": "discord-api-types",
+      "version": "0.38.52",
+      "published": "2026-07-27T14:49:22.577Z",
+      "integrity": "sha512-uwe9EKfbjsmgWc2fdFjvDbj+dQqx3lp7wqDCmIha0jInuU+xeQjkCK9tMMn+p7RXfdVQORCInq4cD3U2ymDmyg=="
+    },
+    {
+      "name": "@octokit/webhooks-types",
+      "version": "7.6.1",
+      "published": "2024-10-03T23:59:02.962Z",
+      "integrity": "sha512-S8u2cJzklBC0FgTwWVLaM8tMrDuDMVE4xiTK4EYXM9GntyvrdbSoxqDQa+Fh57CCNApyIpyeqPhhFEmHPfrXgw=="
+    },
+    {
+      "name": "@libsql/client",
+      "version": "0.17.4",
+      "published": "2026-06-15T18:43:26.670Z",
+      "integrity": "sha512-lYayFWasDV78A+TjlEhr6ubb3odBV6OHjb+wdp8VQcyWWAEIjuwbCHaraEUS4m4yWoo0BvZo96It4VdzZRmRWw=="
+    },
+    {
+      "name": "mongodb",
+      "version": "7.5.0",
+      "published": "2026-07-07T21:54:45.892Z",
+      "integrity": "sha512-5FnrEDLnvp6ycUOGLNLLU33BfCx2qmp2mJjGPDwKLruYsVzXVSK5fsGpoDXvsXJwBfBsD7ebMRdawbDxC2814g=="
+    },
+    {
+      "name": "mysql2",
+      "version": "3.23.2",
+      "published": "2026-07-27T16:14:54.440Z",
+      "integrity": "sha512-fxh3HpQ8vJtu/Mmnd4Xsur19jGjHGzRLMxptiDtOkbX7EVBgnafGSGDx1WGGVmJLClVh2LeeBMMo24IFv8wCyQ=="
+    },
+    {
+      "name": "@opentelemetry/context-async-hooks",
+      "version": "2.10.0",
+      "published": "2026-07-21T19:37:20.143Z",
+      "integrity": "sha512-bvyMcgLEkozzSzpEEEo1OMoeQ97bxj6Qs2uN3mPrSdDvObMI1myffD/BPqcLlzZO9//d1SqQA/WPw7Cz2AiqhA=="
+    },
+    {
+      "name": "@opentelemetry/core",
+      "version": "2.10.0",
+      "published": "2026-07-21T19:37:27.306Z",
+      "integrity": "sha512-/wNZ8twnEQQA4HoHu22+vcsdru6pWPWxW+7w+FlxT6Id7PE/WIbZmVKkte+PF72e0F2dnImFeHD2syyE1Mw6MQ=="
+    },
+    {
+      "name": "@opentelemetry/sdk-trace-base",
+      "version": "2.10.0",
+      "published": "2026-07-21T20:05:09.510Z",
+      "integrity": "sha512-GuYQQT7QD2EeO8lcZLRQzcbOyhqAzL+6WWTKTU9mSUBYBazkEDl+VrQcXQhbB08OWM9anD1aHleVadzulpOaUQ=="
+    },
+    {
+      "name": "@electric-sql/pglite",
+      "version": "0.5.4",
+      "published": "2026-07-02T14:57:30.282Z",
+      "integrity": "sha512-yYZUyyXrHU7tPlCjwZQJ6hIG9DscdCCn7Uk0mYKwC1FeHX286AbcmFveMiRBEak8e9iPupjsoVImN3yJZVed2g=="
+    },
+    {
+      "name": "@testing-library/react",
+      "version": "16.3.2",
+      "published": "2026-01-19T10:59:08.185Z",
+      "integrity": "sha512-XU5/SytQM+ykqMnAnvB2umaJNIOsLF3PVv//1Ew4CTcpz0/BRyy/af40qqrt7SjKpDdT1saBMc42CUok5gaw+g=="
+    },
+    {
+      "name": "happy-dom",
+      "version": "20.11.1",
+      "published": "2026-07-22T16:05:38.829Z",
+      "integrity": "sha512-XSt8tMzbW9ymE7687xztkO1ckR7qJNQ3LywY9vlYGhGi3zXrGBHuUo2Cl1ztZaICW+1eAGdkLbj6iwVqDT33kg=="
+    },
+    {
+      "name": "redis",
+      "version": "6.1.0",
+      "published": "2026-07-01T09:47:05.634Z",
+      "integrity": "sha512-0kvUPM8RHP/ZMa0xYaDTcG5e8tIGW6kz6MToVT0V8iOnk6bkXp2jncGRGe2bZEk41lZwiDspUqjZCSk5ohjcKw=="
+    },
+    {
+      "name": "@earendil-works/pi-agent-core",
+      "version": "1.1.0",
+      "published": "2026-10-07T22:09:51.733Z",
+      "integrity": "sha512-aX1KZomNCPmwYnXa3OivF3VYLJ+WPUkIJlEIZTgwdOZdY/+oToWTQ334WYpQeOz9POpiYFNMJLPwIhXQ4e48kg=="
+    },
+    {
+      "name": "@modelcontextprotocol/client",
+      "version": "2.0.0",
+      "published": "2026-07-27T23:55:22.113Z",
+      "integrity": "sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw=="
+    },
+    {
+      "name": "@valibot/to-json-schema",
+      "version": "1.7.1",
+      "published": "2026-06-08T16:39:28.922Z",
+      "integrity": "sha512-3qkmU6KXWh8GIThEAW3kuRHPQBMjWkKy+Ppz3WkUucx53DTpOa6siMn4xDGSOhlVyMrDaJTCTMLYPZVAIk1P0A=="
+    },
+    {
+      "name": "js-yaml",
+      "version": "5.2.2",
+      "published": "2026-07-23T22:55:18.680Z",
+      "integrity": "sha512-dayzUzKkJ1MkuUtZglSebU43utNXH0OWQByK9rKOOuYIO8M5TV1y+n8ALMdG0rdzBnfNkOmZEqrURepb0ejqBw=="
+    },
+    {
+      "name": "@modelcontextprotocol/server",
+      "version": "2.0.0",
+      "published": "2026-07-27T23:55:22.239Z",
+      "integrity": "sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw=="
+    },
+    {
+      "name": "@durable-streams/client",
+      "version": "0.2.6",
+      "published": "2026-06-01T11:08:10.443Z",
+      "integrity": "sha512-uHKKbWpsKLhFMeGjG0PgM6LXE3oEIi7FHKlJZkmYGxcqd4Yjjd/QEvnQnDzteRP4Av1uJVM8qjTL7kfKsgeS/w=="
+    },
+    {
+      "name": "@slack/types",
+      "version": "3.0.0",
+      "published": "2026-07-14T17:53:23.392Z",
+      "integrity": "sha512-KNOqpnNAlsFt5Jk9XBclslQ0lobRIg/0tnhpmvZJAglHJx9E8oceN8hC3gaBzkR6UzQ9Wzq4rLsJ98wUcxWPfw=="
+    },
+    {
+      "name": "botframework-schema",
+      "version": "4.23.3",
+      "published": "2025-08-27T12:36:56.300Z",
+      "integrity": "sha512-/W0uWxZ3fuPLAImZRLnPTbs49Z2xMpJSIzIBxSfvwO0aqv9GsM3bTk3zlNdJ1xr40SshQ7WiH2H1hgjBALwYJw=="
+    },
+    {
+      "name": "@grammyjs/types",
+      "version": "4.0.0",
+      "published": "2026-07-15T21:15:47.649Z",
+      "integrity": "sha512-Z8lDLTvOlo12e5Vnly/vQh3JC9ppaitS1dGZ3w068gNitOd/y8tTSiib+Xm38aBGbtYGmUZwOc6afYrLs2CSTg=="
+    },
+    {
+      "name": "twilio",
+      "version": "6.0.2",
+      "published": "2026-05-07T16:42:29.227Z",
+      "integrity": "sha512-RN3TZxUtxLz2HBZVt62+LdZxQbrMVgYKtuzLgwmO7nqKvR+gQS5mCackD9hf4Y7MmoK/bX7tCm7kaJC8kC8zFA=="
+    },
+    {
+      "name": "agents",
+      "version": "0.20.1",
+      "published": "2026-07-28T16:08:02.450Z",
+      "integrity": "sha512-HQRYMeZpD3k8djYBH7atRPojZMee3NvmXkzsmMWXfdHZ94vMljmWqSsD1XZd70LovHyQrw6/R81AZZIsRiFM6Q=="
+    },
+    {
+      "name": "magic-string",
+      "version": "1.1.0",
+      "published": "2026-07-23T09:08:26.164Z",
+      "integrity": "sha512-kS3VHe0nEPST2saQV4Rbkchcd3UBRkVTQHo1D3h/ZTwFDhai/mfKkmtPAtD129EOI7K3HlHIsFOt0WrI2/oU9g=="
+    },
+    {
+      "name": "tinyglobby",
+      "version": "0.2.17",
+      "published": "2026-05-30T19:57:21.717Z",
+      "integrity": "sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g=="
+    },
+    {
+      "name": "@whatsapp-cloudapi/types",
+      "version": "5.0.1",
+      "published": "2026-05-28T22:00:16.408Z",
+      "integrity": "sha512-0HGlnzM8P4lrhSMZGoZMYlFLC/DorZXGoeKctA16GhlrTGqNErO3LA7QO5OKMUpo78hj3kCsq/RYX70LnSqwoQ=="
+    }
+  ]
+}

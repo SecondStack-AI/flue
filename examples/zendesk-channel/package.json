@@ -11,18 +11,18 @@
 	"dependencies": {
 		"@flue/runtime": "workspace:*",
 		"@flue/zendesk": "workspace:*",
-		"hono": "^4.12.32",
-		"lossless-json": "*",
-		"valibot": "^1.0.0"
+		"hono": "4.12.32",
+		"lossless-json": "4.3.0",
+		"valibot": "1.4.2"
 	},
 	"devDependencies": {
-		"@cloudflare/vite-plugin": "^1.39.2",
+		"@cloudflare/vite-plugin": "1.49.0",
 		"@cloudflare/vitest-pool-workers": "0.19.1",
 		"@flue/cli": "workspace:*",
 		"@flue/vite": "workspace:*",
-		"@types/node": "^26.1.1",
-		"typescript": "^7.0.2",
-		"vite": "^8.0.14",
-		"vitest": "^4.1.6"
+		"@types/node": "26.1.2",
+		"typescript": "7.0.2",
+		"vite": "8.1.5",
+		"vitest": "4.1.10"
 	}
 }

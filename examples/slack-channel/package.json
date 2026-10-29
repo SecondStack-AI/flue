@@ -10,16 +10,16 @@
 	"dependencies": {
 		"@flue/runtime": "workspace:*",
 		"@flue/slack": "workspace:*",
-		"@slack/web-api": "^8.0.0",
-		"hono": "^4.12.32",
-		"valibot": "^1.0.0"
+		"@slack/web-api": "8.0.0",
+		"hono": "4.12.32",
+		"valibot": "1.4.2"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "0.19.1",
 		"@flue/cli": "workspace:*",
 		"@flue/vite": "workspace:*",
-		"typescript": "^7.0.2",
-		"vite": "^8.0.14",
-		"vitest": "^4.1.6"
+		"typescript": "7.0.2",
+		"vite": "8.1.5",
+		"vitest": "4.1.10"
 	}
 }

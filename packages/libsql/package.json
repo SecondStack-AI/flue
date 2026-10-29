@@ -32,9 +32,9 @@
 		"@flue/runtime": "workspace:*"
 	},
 	"devDependencies": {
-		"@libsql/client": "^0.17.3",
-		"tsdown": "^0.22.7",
-		"typescript": "^7.0.2",
-		"vitest": "^4.1.6"
+		"@libsql/client": "0.17.4",
+		"tsdown": "0.22.14",
+		"typescript": "7.0.2",
+		"vitest": "4.1.10"
 	}
 }
