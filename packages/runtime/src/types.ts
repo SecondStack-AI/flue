@@ -423,15 +423,7 @@ export interface CompactionConfig {
 	 * half or more of a small context window.
 	 */
 	reserveTokens?: number;
-	/**
-	 * Recent tokens to preserve unsummarized after compaction. Older messages
-	 * are folded into a summary; this many tokens of recent history remain
-	 * verbatim so the model keeps immediate context (file paths, tool
-	 * results, current focus). Defaults to 8000.
-	 *
-	 * Lower values compact more aggressively at the cost of recent-context
-	 * fidelity. Setting above ~10% of the contextWindow is rarely useful.
-	 */
+	/** Recent-context target; defaults to min(24000, half the working context budget). */
 	keepRecentTokens?: number;
 	/**
 	 * Override the model used for summarization. Defaults to the session's
@@ -880,7 +872,7 @@ export interface FlueSession {
  * single prompt(), skill(), or task() invocation, including:
  *   - every assistant turn produced by the call,
  *   - any result-extraction retry triggered by `result:` callers,
- *   - any compaction summarization (1–2 internal calls) triggered when
+ *   - any compaction summarization (one internal call) triggered when
  *     context approached the model's window during the call,
  *   - the post-compaction retry assistant turn for overflow recovery.
  *

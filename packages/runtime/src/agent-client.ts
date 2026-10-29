@@ -62,6 +62,7 @@ import type {
 } from './types.ts';
 
 export interface AgentCompactRequest extends CompactOptions {
+	uid?: string | null;
 	/** Render-only authority/context; never appended to conversation history. */
 	delivery?: DeliveredMessage;
 }
@@ -219,7 +220,10 @@ export function init(agent: Agent, options: InitOptions = {}): AgentInstanceHand
 			const rt = requireRuntime('init');
 			if (rt.target !== 'node')
 				throw new Error('[flue] Instance compaction requires the Node owning runtime.');
-			return rt.compactAgentInstance(resolveAgentName(agent, 'init'), id, options);
+			return rt.compactAgentInstance(resolveAgentName(agent, 'init'), id, {
+				...options,
+				...uidCondition(),
+			});
 		},
 
 		async dispatch(request) {

@@ -1,3 +1,6 @@
+import { fauxProvider, fauxAssistantMessage, type TranscriptContext } from '@earendil-works/pi-ai';
+import * as v from 'valibot';
+import { defineTool } from '../src/tool.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { AssistantMessage, Model } from '@earendil-works/pi-ai';
@@ -9,7 +12,7 @@ import {
 	type CompactionTurnObserver,
 } from '../src/compaction.ts';
 import { discoverSessionContext } from '../src/context.ts';
-import { getRuntimeModels } from '../src/runtime/providers.ts';
+import { getRuntimeModels, setProvider } from '../src/runtime/providers.ts';
 import { ConversationRecordWriter } from '../src/conversation-writer.ts';
 import { InMemoryConversationStreamStore } from '../src/runtime/conversation-stream-store.ts';
 import { InMemoryAttachmentStore } from '../src/runtime/attachment-store.ts';
@@ -307,7 +310,7 @@ describe('canonical context declarations and checkpoints', () => {
 	});
 });
 
-async function openSession(records: ConversationRecord[]) {
+async function openSession(records: ConversationRecord[], sessionModel: Model<any> = model) {
 	const store = new InMemoryConversationStreamStore();
 	const writer = await ConversationRecordWriter.create({
 		store,
@@ -322,8 +325,8 @@ async function openSession(records: ConversationRecord[]) {
 			conversation: (await writer.getConversation('conv'))!,
 			config: {
 				systemPrompt: 'Current instructions',
-				model,
-				resolveModel: () => model,
+				model: sessionModel,
+				resolveModel: () => sessionModel,
 				skills: {},
 				compaction: settings,
 			},
@@ -408,6 +411,126 @@ describe('generated environment preamble', () => {
 			expect(owned.recompose('Application rules')).toBe(first);
 		} finally {
 			vi.useRealTimers();
+		}
+	});
+});
+
+describe('provider transcript declaration replay', () => {
+	it('keeps exact historical schemas and declaration positions across a fresh session', async () => {
+		const faux = fauxProvider({
+			provider: 'declaration-test',
+			models: [{ id: 'test', contextWindow: 100000, maxTokens: 4096 }],
+			tokensPerSecond: 0,
+		});
+		setProvider(faux.provider);
+		const requests: TranscriptContext[] = [];
+		faux.setResponses(
+			Array.from({ length: 3 }, () => (context: TranscriptContext) => {
+				requests.push(structuredClone(context));
+				return fauxAssistantMessage('done');
+			}),
+		);
+		const search = defineTool({
+			name: 'lookup',
+			description: 'Find resource',
+			input: v.object({ default: v.optional(v.string(), 'first') }),
+			run: () => 'found',
+		});
+		const read = defineTool({
+			name: 'read_found',
+			description: 'Read resource',
+			input: v.object({ id: v.string() }),
+			run: () => 'data',
+		});
+		const fixture = await openSession([], faux.getModel());
+		await fixture.session.prompt('first', { tools: [search] });
+		await fixture.session.prompt('discover', { tools: [search, read] });
+		const before = (await fixture.writer.getConversation('conv'))!.toolDeclarations;
+		expect(before.length).toBeGreaterThanOrEqual(2);
+		expect(before[0]!.toolsAdded!.find((tool) => tool.name === 'lookup')!.parameters).toMatchObject(
+			{ properties: { default: { type: 'string', default: 'first' } } },
+		);
+		const reopened = await fixture.create();
+		await reopened.prompt('follow up', { tools: [search, read] });
+		const systemMessages = (context: TranscriptContext) =>
+			context.messages
+				.filter((message) => message.role === 'system')
+				.map(({ timestamp: _timestamp, ...message }) => message);
+		expect(systemMessages(requests[2]!)).toEqual(systemMessages(requests[1]!));
+		const stablePrefix = (context: TranscriptContext, length: number) =>
+			context.messages.slice(0, length).map(({ timestamp: _timestamp, ...message }) => message);
+		expect(stablePrefix(requests[2]!, requests[1]!.messages.length)).toEqual(
+			stablePrefix(requests[1]!, requests[1]!.messages.length),
+		);
+		const replayed = (await fixture.writer.getConversation('conv'))!.toolDeclarations;
+		expect(replayed).toEqual(before);
+	});
+});
+
+describe('owning instance compaction API', () => {
+	it('compacts without dispatching command text, renders current authority, and replays once', async () => {
+		const { start } = await import('../src/node/start.ts');
+		const { sqlite } = await import('../src/node/agent-execution-store.ts');
+		const { init } = await import('../src/agent-client.ts');
+		const { useModel } = await import('../src/hooks/use-model.ts');
+		const { useDelivery } = await import('../src/hooks/use-delivery.ts');
+		const { agentStreamPath } = await import('../src/runtime/stream-offsets.ts');
+		const faux = fauxProvider({
+			provider: 'owner-compact',
+			models: [{ id: 'test', contextWindow: 100000, maxTokens: 4096 }],
+			tokensPerSecond: 0,
+		});
+		const requests: Array<{ context: TranscriptContext; purpose: unknown }> = [];
+		faux.setResponses(
+			Array.from({ length: 3 }, () => (context, options) => {
+				requests.push({
+					context: structuredClone(context),
+					purpose: (options as { purpose?: unknown })?.purpose,
+				});
+				return fauxAssistantMessage(
+					requests.length === 3 ? 'Goal and constraints: continue' : 'done',
+				);
+			}),
+		);
+		const rendered: string[] = [];
+		function ManagedAgent() {
+			useModel('owner-compact/test', { compaction: { reserveTokens: 1000, keepRecentTokens: 20 } });
+			const delivery = useDelivery();
+			rendered.push(delivery.body);
+			return 'Current application instruction';
+		}
+		const db = sqlite();
+		const runtime = await start({ agents: [ManagedAgent], providers: [faux.provider], db });
+		try {
+			const instance = init(ManagedAgent, { id: 'owner-compact-instance' });
+			await instance.read(await instance.dispatch('older requirement '.repeat(200)));
+			await instance.read(await instance.dispatch('recent correction'));
+			const result = await instance.compact({
+				operationId: 'manual-command',
+				delivery: { kind: 'user', body: 'render-only-authority' },
+			});
+			expect(result.compacted).toBe(true);
+			expect(rendered).toContain('render-only-authority');
+			expect(
+				await instance.compact({
+					operationId: 'manual-command',
+					delivery: { kind: 'user', body: 'render-only-authority' },
+				}),
+			).toEqual(result);
+			expect(requests).toHaveLength(3);
+			expect(requests[2]!.purpose).toBe('compaction');
+			expect(JSON.stringify(requests[2]!.context)).not.toContain('render-only-authority');
+			const store = (await db.connect()).conversationStreamStore!;
+			const records = (
+				await store.read(agentStreamPath('ManagedAgent', 'owner-compact-instance'), {
+					offset: '-1',
+					limit: 1000,
+				})
+			).batches.flatMap((batch) => batch.records);
+			expect(records.filter((record) => record.type === 'user_message')).toHaveLength(2);
+			expect(JSON.stringify(records)).not.toContain('render-only-authority');
+		} finally {
+			await runtime.stop();
 		}
 	});
 });

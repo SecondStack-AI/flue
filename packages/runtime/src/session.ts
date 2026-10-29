@@ -694,6 +694,7 @@ function sleepUntilRetry(delayMs: number, signal: AbortSignal): Promise<void> {
 }
 
 export class Session implements FlueSession, AgentSubmissionSession {
+	private readonly contextEntryIds = new WeakMap<object, string>();
 	readonly name: string;
 	readonly conversationId: string;
 	readonly fs: FlueFs;
@@ -1362,8 +1363,9 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			);
 		}
 		const timestamp = new Date().toISOString();
+		const messageId = generateConversationEntryId();
 		this.pendingSignalAppends.push({
-			messageId: generateConversationEntryId(),
+			messageId,
 			timestamp,
 			signalType: signal.type,
 			...(signal.tagName ? { tagName: signal.tagName } : {}),
@@ -1374,19 +1376,19 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		// durable record (signals reach the model as rendered user-context
 		// messages — see buildConversationContext), so the live loop and a
 		// rehydrated context can never disagree about what the model saw.
-		this.agentLoop.steer(
-			createUserContextMessage(
-				renderSignalMessage({
-					role: 'signal',
-					type: signal.type,
-					tagName: signal.tagName,
-					content: signal.body,
-					attributes: signal.attributes,
-					timestamp: new Date(timestamp).getTime(),
-				}),
-				timestamp,
-			),
+		const message = createUserContextMessage(
+			renderSignalMessage({
+				role: 'signal',
+				type: signal.type,
+				tagName: signal.tagName,
+				content: signal.body,
+				attributes: signal.attributes,
+				timestamp: new Date(timestamp).getTime(),
+			}),
+			timestamp,
 		);
+		this.contextEntryIds.set(message, messageId);
+		this.agentLoop.steer(message);
 		// The delivery cursor tracks intentional inputs: agent-authored appends
 		// advance it exactly like delivered messages — the append IS the input
 		// the continuation turn answers. Framework narration passes
@@ -1801,6 +1803,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				'[flue] A joined delivery input entry is missing from the projected context.',
 			);
 		}
+		this.contextEntryIds.set(entry.message, entry.sourceEntry.id);
 		this.agentLoop.steer(entry.message);
 	}
 
@@ -2546,6 +2549,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 									...(event.message.errorMessage ? { error: event.message.errorMessage } : {}),
 								},
 							]);
+							this.contextEntryIds.set(event.message, canonical.messageId);
 							if (this.activeSubmissionId) {
 								this.responseHasCompletedStep = true;
 								const stepUsage = fromProviderUsage(event.message.usage);
@@ -2714,6 +2718,11 @@ export class Session implements FlueSession, AgentSubmissionSession {
 								outcomeIds,
 							},
 						]);
+						for (const toolResult of event.toolResults)
+							this.contextEntryIds.set(
+								toolResult,
+								toolResultEntryId(assistantMessageId, toolResult.toolCallId),
+							);
 						this.publishPendingToolResults(event.toolResults);
 						this.lastCommittedToolBatch = {
 							assistantMessageId,
@@ -4969,6 +4978,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		}
 		const messages: AgentMessage[] = [];
 		for (const entry of entries) {
+			this.contextEntryIds.set(entry.message, entry.sourceEntry.id);
 			messages.push(entry.message);
 			messages.push(...(changes.get(entry.sourceEntry.id) ?? []));
 		}
@@ -5002,12 +5012,19 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		];
 	}
 
-	/** Persist the declaration after the committed leaf, never a positional message count. */
+	/** Anchor declarations to committed entry identity, excluding unpersisted follow-up reminders. */
 	private async persistToolDeclaration(message: SystemMessage): Promise<void> {
 		if (!message.toolsAdded?.length && !message.toolsRemoved?.length) return;
 		await this.flushCanonical();
-		const conversation = await this.requireConversation();
-		const afterEntryId = conversation.activeLeafId;
+		const live = this.agentLoop.state.messages;
+		const position = live.lastIndexOf(message);
+		const preceding = position < 0 ? live : live.slice(0, position);
+		let afterEntryId: string | undefined;
+		for (let index = preceding.length - 1; index >= 0; index--) {
+			const candidate = preceding[index]!;
+			afterEntryId = this.contextEntryIds.get(candidate);
+			if (afterEntryId) break;
+		}
 		if (!afterEntryId) throw new Error('[flue] Tool declaration has no committed context anchor.');
 		await this.appendCanonical([
 			...(await this.leadingToolDeclarationRecords()),
@@ -5226,7 +5243,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	}
 
 	/**
-	 * Runs a compaction pass. The summarization cost (1–2 internal LLM
+	 * Runs a compaction pass. The summarization cost (one internal LLM
 	 * calls) is persisted on the resulting canonical compaction usage, which
 	 * `aggregateUsageSince` later folds into the surrounding call's
 	 * `response.usage` — so users see the true cost of the call that

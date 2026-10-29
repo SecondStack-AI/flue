@@ -285,7 +285,9 @@ export function createNodeAgentCoordinator(options: {
 		return writer;
 	}
 
-	function getMcpConnections(input: AgentSubmissionInput): McpConnectionCache {
+	function getMcpConnections(
+		input: Pick<AgentSubmissionInput, 'agent' | 'id'>,
+	): McpConnectionCache {
 		const path = agentStreamPath(input.agent, input.id);
 		let cache = mcpConnectionCaches.get(path);
 		if (!cache) {
@@ -984,10 +986,15 @@ export function createNodeAgentCoordinator(options: {
 					throw new Error('[flue] Instance is busy.');
 				if (!conversationStreamStore)
 					throw new Error('[flue] Instance compaction requires durable conversation storage.');
+				const agent = resolveAgent(agentName);
+				if (!(await conversationStreamStore.getMeta(path)))
+					throw new Error('[flue] Instance compaction requires an existing conversation.');
 				const writer = await getConversationWriter({ agent: agentName, id: instanceId });
 				const state = await writer!.loadReducedState();
 				if (state.conversations.size === 0)
 					throw new Error('[flue] Instance compaction requires an existing conversation.');
+				if (options.uid !== undefined && options.uid !== state.uid)
+					throw new Error('[flue] Instance compaction incarnation does not match.');
 				const ctx = createContext({
 					id: instanceId,
 					agentName,
@@ -995,9 +1002,16 @@ export function createNodeAgentCoordinator(options: {
 				});
 				ctx.setConversationWriter?.(writer);
 				ctx.setAttachmentStore?.(attachmentStore);
-				const harness = await ctx.initializeRootHarness(resolveAgent(agentName), options.delivery);
-				const session = await harness.session(SUBMISSION_SESSION_NAME);
-				return await session.compact(options);
+				ctx.setMcpConnections?.(getMcpConnections({ agent: agentName, id: instanceId }));
+				const harness = await ctx.initializeRootHarness(agent, options.delivery);
+				try {
+					const session = await harness.session(SUBMISSION_SESSION_NAME);
+					const result = await session.compact(options);
+					await ctx.flushEventCallbacks();
+					return result;
+				} finally {
+					await harness.close();
+				}
 			} finally {
 				compactingInstances.delete(path);
 				lease?.release();
