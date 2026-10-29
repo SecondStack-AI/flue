@@ -1,3 +1,4 @@
+import { getLatestConversationCompaction } from './conversation-projections.ts';
 import { discoverSessionContext, skillCatalogEntries } from './context.ts';
 import { ConversationRecordWriter } from './conversation-writer.ts';
 import { normalizeLogAttributes } from './errors.ts';
@@ -319,7 +320,13 @@ async function initializeRootHarness(
 	// it starts as the waking delivery and the session advances it when a
 	// delivery joins the live response or a lifecycle callback appends a
 	// signal, so every re-render's `useDelivery()` reads the latest input.
+	const rootConversation = [...reduced.conversations.values()].find(
+		(conversation) => conversation.kind === 'root',
+	);
 	const renderState: RenderStateContext = {
+		contextEpoch: rootConversation
+			? getLatestConversationCompaction(rootConversation)?.id
+			: undefined,
 		snapshot: reduced.state,
 		store: hookState,
 		output: outputChannel,
@@ -484,6 +491,9 @@ async function initializeRootHarness(
 		};
 	};
 	const resourceRuntime: SessionResourceRuntime = {
+		setContextEpoch: (epoch) => {
+			renderState.contextEpoch = epoch;
+		},
 		initial: initialResources,
 		...(durableResources?.baseline ? { baseline: durableResources.baseline } : {}),
 		...(durableResources?.narrated ? { narrated: durableResources.narrated } : {}),

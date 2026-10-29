@@ -277,6 +277,7 @@ interface ToolResultsCommittedRecord extends ConversationRecordEnvelope {
 export interface CompactionNoopRecord extends ConversationRecordEnvelope {
 	type: 'compaction_noop';
 	operationId: string;
+	usage?: PromptUsage;
 }
 
 export interface CompactionRecord extends ConversationRecordEnvelope {

@@ -74,7 +74,7 @@ import {
 	prepareCompaction,
 	shouldCompact,
 } from './compaction.ts';
-import type { CompactOptions, CompactResult } from './types.ts';
+import type { CompactionConfig, CompactOptions, CompactResult } from './types.ts';
 import { isWorkspaceSkill, skillsDirIn } from './context.ts';
 import {
 	aggregateConversationUsageSince,
@@ -576,6 +576,7 @@ export interface RenderedResources {
  * `rebaseline` with the then-current snapshot.
  */
 export interface SessionResourceRuntime {
+	setContextEpoch?: (epoch: string | undefined) => void;
 	/** Resources of the harness-init render — the model's turn-1 view. */
 	initial: RenderedResources;
 	/** Durable snapshots from the instance's reduced stream, when present. */
@@ -695,6 +696,7 @@ function sleepUntilRetry(delayMs: number, signal: AbortSignal): Promise<void> {
 
 export class Session implements FlueSession, AgentSubmissionSession {
 	private readonly contextEntryIds = new WeakMap<object, string>();
+	private automaticCompactionBlocked = false;
 	readonly name: string;
 	readonly conversationId: string;
 	readonly fs: FlueFs;
@@ -1239,9 +1241,13 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	 * catalogs/workspace over a post-compaction transcript until the next
 	 * compaction. In-memory swaps land only after the single durable point.
 	 */
-	private async rebaselineResources(compactionRecord: ConversationRecord): Promise<void> {
+	private async rebaselineResources(
+		compactionRecord: ConversationRecord,
+		onCommitted: () => void,
+	): Promise<void> {
 		if (!this.resourceRuntime || !this.rerender || !this.lastRenderedResources) {
 			await this.appendCanonical([compactionRecord]);
+			onCommitted();
 			return;
 		}
 		// An environment swap left the prompt describing the init-time
@@ -1258,6 +1264,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		const refreshed = this.rerender();
 		const current = refreshed.resources.snapshot;
 		await this.appendCanonical([compactionRecord, this.resourceSnapshotRecord(current, true)]);
+		onCommitted();
 		this.lastNarratedResources = current;
 		this.agentTools = refreshed.tools;
 		this.liveSkills = refreshed.resources.skills;
@@ -2762,8 +2769,11 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		});
 	}
 
-	private resolveCompactionSettings(model: Model<any> | undefined): CompactionSettings {
-		const cc = this.config.compaction;
+	private resolveCompactionSettings(
+		model: Model<any> | undefined,
+		override?: CompactionConfig,
+	): CompactionSettings {
+		const cc = override ?? this.config.compaction;
 		const defaults = model
 			? deriveCompactionDefaults({
 					contextWindow: model.contextWindow ?? 0,
@@ -2776,10 +2786,13 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		if (!cc) {
 			return defaults;
 		}
+		const reserveTokens = cc.reserveTokens ?? defaults.reserveTokens;
 		return {
 			enabled: true,
-			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
-			keepRecentTokens: cc.keepRecentTokens ?? defaults.keepRecentTokens,
+			reserveTokens,
+			keepRecentTokens:
+				cc.keepRecentTokens ??
+				Math.max(0, Math.min(24000, Math.floor(((model?.contextWindow ?? 0) - reserveTokens) / 2))),
 			transformMessageText: cc.transformMessageText,
 		};
 	}
@@ -3805,7 +3818,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			throw new Error('[flue:compaction] Operation identity must not be empty.');
 		return this.runOperation(
 			'compact',
-			undefined,
+			options.signal,
 			async () => {
 				const operationId = this.activeOperationId!;
 				const recordId = `record_compact_${encodeCanonicalId(this.conversationId)}_${encodeCanonicalId(operationId)}`;
@@ -3817,18 +3830,29 @@ export class Session implements FlueSession, AgentSubmissionSession {
 						summary: existing.summary,
 						firstKeptEntryId: existing.firstKeptEntryId,
 						sourceLeafId: existing.sourceLeafId,
+						usage: existing.usage,
 					};
-				if (existing?.type === 'compaction_noop') return { compacted: false, operationId };
-				const changed = await this.runCompaction('manual', options, recordId);
-				if (!changed) {
+				if (existing?.type === 'compaction_noop')
+					return {
+						compacted: false,
+						operationId,
+						...(existing.usage ? { usage: existing.usage } : {}),
+					};
+				const outcome = await this.runCompaction('manual', options, recordId);
+				if (!outcome.compacted) {
 					await this.appendCanonical([
 						{
 							...this.canonicalEnvelope('compaction_noop', recordId),
 							type: 'compaction_noop',
 							operationId,
+							usage: outcome.usage,
 						},
 					]);
-					return { compacted: false, operationId };
+					return {
+						compacted: false,
+						operationId,
+						...(outcome.usage ? { usage: outcome.usage } : {}),
+					};
 				}
 				const result = getLatestConversationCompaction(await this.requireConversation());
 				if (!result) throw new Error('[flue:compaction] Committed summary is missing.');
@@ -3838,6 +3862,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 					summary: result.summary,
 					firstKeptEntryId: result.firstKeptEntryId,
 					sourceLeafId: result.sourceLeafId,
+					usage: result.usage,
 				};
 			},
 			options.operationId,
@@ -5135,7 +5160,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				overflowRecoveryAttempted = true;
 				this.internalLog('info', '[flue:compaction] Overflow detected, compacting...');
 				await this.rebuildCanonicalContext();
-				if (!(await this.runCompaction('overflow'))) {
+				if (!(await this.runCompaction('overflow')).compacted) {
 					if (!turnCompleted && options.resume) {
 						throw new OperationFailedError({
 							operation: options.resume.errorLabel,
@@ -5253,31 +5278,28 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		reason: 'threshold' | 'overflow' | 'manual',
 		options: CompactOptions = {},
 		recordId?: string,
-	): Promise<boolean> {
+	): Promise<CompactResult> {
+		if (reason === 'threshold' && this.automaticCompactionBlocked) return { compacted: false };
 		this.compactionAbortController = new AbortController();
 		const messagesBefore = this.agentLoop.state.messages.length;
 		const compactionStartMs = Date.now();
 		// True between `compaction_start` and its terminal `compaction` event,
 		// so every started compaction emits exactly one terminal event.
 		let terminalPending = false;
+		let committed = false;
+		let previousEpoch: string | undefined;
+		let prospectiveEpoch = false;
 
 		try {
 			const sessionModel = options.model
 				? this.resolveModelForCall(options.model)
 				: this.agentLoop.state.model;
-			const settings = this.resolveCompactionSettings(sessionModel);
+			const settings = this.resolveCompactionSettings(sessionModel, options.compaction);
 			// Summarization may use a cheaper or stronger model than the active
 			// session model, but the cut point still uses the active model's window.
 			const compactionConfig =
 				options.compaction ??
 				(this.config.compaction === false ? undefined : this.config.compaction);
-			if (compactionConfig) {
-				settings.reserveTokens = compactionConfig.reserveTokens ?? settings.reserveTokens;
-				settings.keepRecentTokens =
-					compactionConfig.keepRecentTokens ??
-					Math.min(24000, Math.floor((sessionModel.contextWindow - settings.reserveTokens) / 2));
-				settings.transformMessageText = compactionConfig.transformMessageText;
-			}
 			const summarizationModel = compactionConfig?.model
 				? this.resolveModelForCall(compactionConfig.model)
 				: sessionModel;
@@ -5297,6 +5319,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 					: {}),
 			}));
 			const latestCompaction = getLatestConversationCompaction(canonicalConversation);
+			previousEpoch = latestCompaction?.id;
 
 			const preparation = prepareCompaction(
 				messages,
@@ -5311,7 +5334,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			);
 			if (!preparation) {
 				this.internalLog('info', '[flue:compaction] Nothing to compact (no valid cut point found)');
-				return false;
+				return { compacted: false };
 			}
 			const firstKeptEntry = contextEntries[preparation.firstKeptIndex]?.sourceEntry;
 			if (firstKeptEntry?.type !== 'message') {
@@ -5319,7 +5342,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 					'info',
 					'[flue:compaction] Nothing to compact (first kept message has no entry)',
 				);
-				return false;
+				return { compacted: false };
 			}
 
 			this.internalLog(
@@ -5360,29 +5383,6 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				},
 			);
 
-			const projectedTokens =
-				Math.ceil(result.summary.length / 4) +
-				estimateCompactionMessagesTokens(preparation.retainedMessages);
-			const requestOverhead =
-				Math.ceil(
-					(this.agentLoop.state.systemPrompt.length +
-						JSON.stringify(this.agentLoop.state.tools.map(toToolDeclaration)).length) /
-						4,
-				) + 16;
-			if (projectedTokens + requestOverhead + settings.reserveTokens > sessionModel.contextWindow)
-				throw new Error('[flue:compaction] Compacted context exceeds session working limit.');
-			if (projectedTokens >= preparation.tokensBefore) {
-				this.emit({
-					type: 'compaction',
-					messagesBefore,
-					messagesAfter: messagesBefore,
-					durationMs: durationSince(compactionStartMs),
-					isError: false,
-					usage: result.usage,
-				});
-				terminalPending = false;
-				return false;
-			}
 			if (this.compactionAbortController.signal.aborted) {
 				const abortError = abortErrorFor(this.compactionAbortController.signal);
 				this.emit(
@@ -5398,7 +5398,46 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				);
 				terminalPending = false;
 				if (reason === 'manual') throw abortError;
-				return false;
+				return { compacted: false };
+			}
+
+			const projectedTokens =
+				Math.ceil(result.summary.length / 4) +
+				estimateCompactionMessagesTokens(preparation.retainedMessages);
+
+			const entryId = generateConversationEntryId();
+			this.resourceRuntime?.setContextEpoch?.(entryId);
+			prospectiveEpoch = true;
+			const prospectiveRender = this.rerender?.();
+			const requestOverhead =
+				Math.ceil(
+					((prospectiveRender?.systemPrompt ?? this.agentLoop.state.systemPrompt).length +
+						JSON.stringify(this.agentLoop.state.tools.map(toToolDeclaration)).length +
+						(prospectiveRender ? JSON.stringify(prospectiveRender.resources.snapshot).length : 0)) /
+						4,
+				) + 16;
+			if (projectedTokens + requestOverhead + settings.reserveTokens > sessionModel.contextWindow)
+				throw new Error('[flue:compaction] Compacted context exceeds session working limit.');
+			if (projectedTokens >= preparation.tokensBefore) {
+				this.emit({
+					type: 'compaction',
+					messagesBefore,
+					messagesAfter: messagesBefore,
+					durationMs: durationSince(compactionStartMs),
+					isError: false,
+					usage: result.usage,
+				});
+				terminalPending = false;
+				if (reason !== 'manual')
+					await this.appendCanonical([
+						{
+							...this.canonicalEnvelope('compaction_noop'),
+							type: 'compaction_noop',
+							operationId: this.activeOperationId!,
+							usage: result.usage,
+						},
+					]);
+				return { compacted: false, usage: result.usage };
 			}
 
 			{
@@ -5409,19 +5448,26 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				// resource_snapshot rides the same batch — a crash between separate
 				// appends would durably compact the context while stranding the
 				// frozen baseline at its pre-compaction state.
-				await this.rebaselineResources({
-					...this.canonicalEnvelope('compaction', recordId),
-					type: 'compaction',
-					entryId: generateConversationEntryId(),
-					parentId: sourceLeafId,
-					summary: result.summary,
-					firstKeptEntryId: firstKeptEntry.id,
-					sourceLeafId,
-					tokensBefore: result.tokensBefore,
-					details: result.details,
-					usage: result.usage,
-				});
+				await this.rebaselineResources(
+					{
+						...this.canonicalEnvelope('compaction', recordId),
+						type: 'compaction',
+						entryId,
+						parentId: sourceLeafId,
+						summary: result.summary,
+						firstKeptEntryId: firstKeptEntry.id,
+						sourceLeafId,
+						tokensBefore: result.tokensBefore,
+						details: result.details,
+						usage: result.usage,
+					},
+					() => {
+						committed = true;
+					},
+				);
 			}
+			committed = true;
+			this.automaticCompactionBlocked = false;
 			await this.rebuildCanonicalContext();
 
 			const messagesAfter = this.agentLoop.state.messages.length;
@@ -5441,7 +5487,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			});
 			terminalPending = false;
 
-			return true;
+			return { compacted: true, usage: result.usage };
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			this.internalLog('error', `[flue:compaction] Failed: ${errorMessage}`, { error });
@@ -5461,8 +5507,13 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			// Explicit `session.compact()` calls must surface their own failure;
 			// automatic threshold/overflow compaction stays best-effort.
 			if (reason === 'manual') throw error;
-			return false;
+			return { compacted: false };
 		} finally {
+			if (!committed && prospectiveEpoch) {
+				this.resourceRuntime?.setContextEpoch?.(previousEpoch);
+				this.rerender?.();
+			}
+			if (!committed && reason !== 'manual') this.automaticCompactionBlocked = true;
 			this.compactionAbortController = undefined;
 		}
 	}
@@ -5497,10 +5548,18 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	 * assistant turn before retry).
 	 */
 	private async aggregateCanonicalUsageSince(beforeLeafId: string | null): Promise<PromptUsage> {
-		return (
+		let usage =
 			aggregateConversationUsageSince(await this.requireConversation(), beforeLeafId) ??
-			emptyUsage()
-		);
+			emptyUsage();
+		for (const record of (await this.conversationWriter.loadReducedState()).recordsById.values()) {
+			if (
+				record.type === 'compaction_noop' &&
+				record.operationId === this.activeOperationId &&
+				record.usage
+			)
+				usage = addUsage(usage, record.usage);
+		}
+		return usage;
 	}
 
 	private agentInvocationOutput(result: unknown): FlueObservationDetail['agentOutput'] {

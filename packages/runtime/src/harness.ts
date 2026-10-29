@@ -347,7 +347,7 @@ export class Harness implements FlueHarness {
 		const localContext = await discoverSessionContext(
 			taskEnv,
 			definitionSkills,
-			this.config.environmentPreamble,
+			taskAgent?.environmentPreamble ?? this.config.environmentPreamble,
 		);
 		// The child's "Available Agents" section is its own (nested) roster —
 		// a blank or leaf delegate correctly reads "None".
@@ -366,6 +366,7 @@ export class Harness implements FlueHarness {
 		}
 		const taskConfig: AgentConfig = {
 			...this.config,
+			environmentPreamble: taskAgent?.environmentPreamble ?? this.config.environmentPreamble,
 			// Recompose AFTER the agent-catalog seed above — the discovery-time
 			// composition predates it.
 			systemPrompt: localContext.recompose(instructions),

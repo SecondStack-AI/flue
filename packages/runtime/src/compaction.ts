@@ -71,7 +71,10 @@ export function deriveCompactionDefaults(input: {
 	return {
 		enabled: true,
 		reserveTokens,
-		keepRecentTokens: Math.min(24000, Math.floor((input.contextWindow - reserveTokens) / 2)),
+		keepRecentTokens: Math.max(
+			0,
+			Math.min(24000, Math.floor((input.contextWindow - reserveTokens) / 2)),
+		),
 	};
 }
 

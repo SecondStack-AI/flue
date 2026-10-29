@@ -166,6 +166,7 @@ export function resolveSubagentDefinition(
 	return {
 		name: subagent.name,
 		description: subagent.description,
+		environmentPreamble: frame.environmentPreamble,
 		...(subagent.model !== undefined ? { model: subagent.model } : {}),
 		...(subagent.thinkingLevel !== undefined ? { thinkingLevel: subagent.thinkingLevel } : {}),
 		...(instructions !== undefined ? { instructions } : {}),

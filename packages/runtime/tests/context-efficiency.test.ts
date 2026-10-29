@@ -40,6 +40,15 @@ const model: Model<'openai-completions'> = {
 	maxTokens: 8000,
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
+const modelMessage = (message: TranscriptContext['messages'][number]) => ({
+	role: message.role,
+	content: message.content,
+	...('toolsAdded' in message ? { toolsAdded: message.toolsAdded } : {}),
+	...('toolsRemoved' in message ? { toolsRemoved: message.toolsRemoved } : {}),
+	...('toolCallId' in message
+		? { toolCallId: message.toolCallId, toolName: message.toolName, isError: message.isError }
+		: {}),
+});
 const usage = {
 	input: 10,
 	output: 5,
@@ -310,7 +319,11 @@ describe('canonical context declarations and checkpoints', () => {
 	});
 });
 
-async function openSession(records: ConversationRecord[], sessionModel: Model<any> = model) {
+async function openSession(
+	records: ConversationRecord[],
+	sessionModel: Model<any> = model,
+	summaryModel?: Model<any>,
+) {
 	const store = new InMemoryConversationStreamStore();
 	const writer = await ConversationRecordWriter.create({
 		store,
@@ -326,9 +339,9 @@ async function openSession(records: ConversationRecord[], sessionModel: Model<an
 			config: {
 				systemPrompt: 'Current instructions',
 				model: sessionModel,
-				resolveModel: () => sessionModel,
+				resolveModel: () => summaryModel ?? sessionModel,
 				skills: {},
-				compaction: settings,
+				compaction: { ...settings, ...(summaryModel ? { model: 'summary' } : {}) },
 			},
 			conversationWriter: writer,
 			attachmentStore: new InMemoryAttachmentStore(),
@@ -341,6 +354,38 @@ async function openSession(records: ConversationRecord[], sessionModel: Model<an
 }
 
 describe('manual compaction durable replay', () => {
+	it('uses only the latest automatic summary and unchanged retained tail for later manual compaction', async () => {
+		const faux = fauxProvider({ provider: 'auto-manual-context', tokensPerSecond: 0 });
+		setProvider(faux.provider);
+		faux.setResponses([fauxAssistantMessage('retained automatic tail')]);
+		const request = vi
+			.spyOn(getRuntimeModels(), 'completeSimple')
+			.mockResolvedValueOnce(assistant([{ type: 'text', text: 'first handoff summary' }]))
+			.mockResolvedValueOnce(assistant([{ type: 'text', text: 'second handoff summary' }]));
+		const fixture = await openSession([], { ...faux.getModel(), contextWindow: 10000 }, model);
+		await fixture.session.prompt('ORIGINAL_ONLY_IN_FIRST_SUMMARY '.repeat(2000));
+		expect(request).toHaveBeenCalledTimes(1);
+		const first = (await fixture.writer.getConversation('conv'))!;
+		const tail = buildConversationContext(first).filter((message) => message.role === 'assistant');
+		await fixture.writer.append([
+			userRecord('entry_later', first.activeLeafId!, 'Later progress '.repeat(400)),
+			userRecord('entry_recent', 'entry_later', 'Newest unchanged tail'),
+		]);
+		const retainedBefore = buildConversationContext(
+			(await fixture.writer.getConversation('conv'))!,
+		).at(-1);
+		const restarted = await fixture.create();
+		expect((await restarted.compact({ operationId: 'manual-after-auto' })).compacted).toBe(true);
+		expect(request).toHaveBeenCalledTimes(2);
+		const serialized = JSON.stringify(request.mock.calls[1]![1]);
+		expect(serialized).toContain('first handoff summary');
+		expect(serialized).toContain('retained automatic tail');
+		expect(serialized).toContain('Newest unchanged tail');
+		expect(serialized).not.toContain('ORIGINAL_ONLY_IN_FIRST_SUMMARY');
+		expect(tail).toHaveLength(1);
+		const latest = buildConversationContext((await fixture.writer.getConversation('conv'))!);
+		expect(latest.at(-1)).toEqual(retainedBefore);
+	});
 	it('replays a committed summary after session reconstruction without a second provider charge', async () => {
 		const request = vi
 			.spyOn(getRuntimeModels(), 'completeSimple')
@@ -394,6 +439,51 @@ describe('manual compaction durable replay', () => {
 			compacted: true,
 		});
 		expect(request).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('compaction charge and failure atomicity', () => {
+	it('persists usage when a paid summary does not reduce context', async () => {
+		const request = vi
+			.spyOn(getRuntimeModels(), 'completeSimple')
+			.mockResolvedValue(assistant([{ type: 'text', text: 'long summary '.repeat(500) }]));
+		const fixture = await openSession([
+			userRecord('entry_a', null, 'older'.repeat(100)),
+			userRecord('entry_b', 'entry_a', 'new'),
+		]);
+		const result = await fixture.session.compact({ operationId: 'paid-noop' });
+		expect(result.compacted).toBe(false);
+		expect(result.usage?.totalTokens).toBe(15);
+		expect(await (await fixture.create()).compact({ operationId: 'paid-noop' })).toEqual(result);
+		expect(request).toHaveBeenCalledTimes(1);
+		expect((await fixture.writer.getConversation('conv'))!.activeLeafId).toBe('entry_b');
+	});
+	it('does not commit no-op after a provider returns from an aborted call', async () => {
+		const fixture = await openSession([
+			userRecord('entry_a', null, 'older'.repeat(100)),
+			userRecord('entry_b', 'entry_a', 'new'),
+		]);
+		vi.spyOn(getRuntimeModels(), 'completeSimple').mockImplementationOnce(async () => {
+			fixture.session.abort();
+			return assistant([{ type: 'text', text: 'long summary '.repeat(500) }]);
+		});
+		await expect(fixture.session.compact({ operationId: 'aborted' })).rejects.toThrow();
+		const records = (await fixture.writer.loadReducedState()).recordsById;
+		expect([...records.values()].some((record) => record.type === 'compaction_noop')).toBe(false);
+		expect((await fixture.writer.getConversation('conv'))!.activeLeafId).toBe('entry_b');
+	});
+	it('rejects a summary whose projected session cannot fit', async () => {
+		const fixture = await openSession([
+			userRecord('entry_a', null, 'older'.repeat(100)),
+			userRecord('entry_b', 'entry_a', 'new'),
+		]);
+		vi.spyOn(getRuntimeModels(), 'completeSimple').mockResolvedValue(
+			assistant([{ type: 'text', text: 'oversized '.repeat(50000) }]),
+		);
+		await expect(fixture.session.compact({ operationId: 'too-large' })).rejects.toThrow(
+			'working limit',
+		);
+		expect((await fixture.writer.getConversation('conv'))!.activeLeafId).toBe('entry_b');
 	});
 });
 
@@ -453,12 +543,10 @@ describe('provider transcript declaration replay', () => {
 		const reopened = await fixture.create();
 		await reopened.prompt('follow up', { tools: [search, read] });
 		const systemMessages = (context: TranscriptContext) =>
-			context.messages
-				.filter((message) => message.role === 'system')
-				.map(({ timestamp: _timestamp, ...message }) => message);
+			context.messages.filter((message) => message.role === 'system').map(modelMessage);
 		expect(systemMessages(requests[2]!)).toEqual(systemMessages(requests[1]!));
 		const stablePrefix = (context: TranscriptContext, length: number) =>
-			context.messages.slice(0, length).map(({ timestamp: _timestamp, ...message }) => message);
+			context.messages.slice(0, length).map(modelMessage);
 		expect(stablePrefix(requests[2]!, requests[1]!.messages.length)).toEqual(
 			stablePrefix(requests[1]!, requests[1]!.messages.length),
 		);
@@ -474,6 +562,7 @@ describe('owning instance compaction API', () => {
 		const { init } = await import('../src/agent-client.ts');
 		const { useModel } = await import('../src/hooks/use-model.ts');
 		const { useDelivery } = await import('../src/hooks/use-delivery.ts');
+		const { useContextEpoch } = await import('../src/hooks/use-context-epoch.ts');
 		const { agentStreamPath } = await import('../src/runtime/stream-offsets.ts');
 		const faux = fauxProvider({
 			provider: 'owner-compact',
@@ -482,7 +571,7 @@ describe('owning instance compaction API', () => {
 		});
 		const requests: Array<{ context: TranscriptContext; purpose: unknown }> = [];
 		faux.setResponses(
-			Array.from({ length: 3 }, () => (context, options) => {
+			Array.from({ length: 4 }, () => (context, options) => {
 				requests.push({
 					context: structuredClone(context),
 					purpose: (options as { purpose?: unknown })?.purpose,
@@ -497,7 +586,7 @@ describe('owning instance compaction API', () => {
 			useModel('owner-compact/test', { compaction: { reserveTokens: 1000, keepRecentTokens: 20 } });
 			const delivery = useDelivery();
 			rendered.push(delivery.body);
-			return 'Current application instruction';
+			return `Current application instruction epoch:${useContextEpoch() ?? 'initial'}`;
 		}
 		const db = sqlite();
 		const runtime = await start({ agents: [ManagedAgent], providers: [faux.provider], db });
@@ -518,6 +607,10 @@ describe('owning instance compaction API', () => {
 				}),
 			).toEqual(result);
 			expect(requests).toHaveLength(3);
+			await instance.read(await instance.dispatch('continue'));
+			expect(JSON.stringify(requests[3]!.context)).toContain(
+				'Current application instruction epoch:entry_',
+			);
 			expect(requests[2]!.purpose).toBe('compaction');
 			expect(JSON.stringify(requests[2]!.context)).not.toContain('render-only-authority');
 			const store = (await db.connect()).conversationStreamStore!;
@@ -527,9 +620,164 @@ describe('owning instance compaction API', () => {
 					limit: 1000,
 				})
 			).batches.flatMap((batch) => batch.records);
-			expect(records.filter((record) => record.type === 'user_message')).toHaveLength(2);
+			expect(records.filter((record) => record.type === 'user_message')).toHaveLength(3);
 			expect(JSON.stringify(records)).not.toContain('render-only-authority');
 		} finally {
+			await runtime.stop();
+		}
+	});
+});
+
+describe('lazy declarations across checkpoints', () => {
+	it('replays a discovery tool round from a persisted checkpoint with unchanged prefix', async () => {
+		const { mkdtemp, rm } = await import('node:fs/promises');
+		const { tmpdir } = await import('node:os');
+		const { start } = await import('../src/node/start.ts');
+		const { sqlite } = await import('../src/node/agent-execution-store.ts');
+		const { init } = await import('../src/agent-client.ts');
+		const { useModel } = await import('../src/hooks/use-model.ts');
+		const { useTool } = await import('../src/hooks/use-tool.ts');
+		const { usePersistentState } = await import('../src/hooks/use-persistent-state.ts');
+		const { useEnvironmentPreamble } = await import('../src/hooks/use-environment-preamble.ts');
+		const { fauxToolCall } = await import('@earendil-works/pi-ai');
+		const { agentStreamPath } = await import('../src/runtime/stream-offsets.ts');
+		const { loadReducedConversationState } = await import('../src/conversation-reader.ts');
+		const { REDUCED_STATE_FORMAT } = await import('../src/conversation-reducer.ts');
+		const folder = await mkdtemp(`${tmpdir()}/flue-declarations-`);
+		const faux = fauxProvider({
+			provider: 'lazy-checkpoint',
+			models: [{ id: 'test', contextWindow: 100000, maxTokens: 4096 }],
+			tokensPerSecond: 0,
+		});
+		const requests: TranscriptContext[] = [];
+		faux.setResponses(
+			[0, 1, 2].map((index) => (context) => {
+				requests.push(structuredClone(context));
+				return index === 0
+					? fauxAssistantMessage(fauxToolCall('discover', {}, { id: 'discover-call' }))
+					: fauxAssistantMessage('done');
+			}),
+		);
+		function LazyAgent() {
+			useModel('lazy-checkpoint/test');
+			useEnvironmentPreamble(false);
+			const [discovered, setDiscovered] = usePersistentState('discovered', false);
+			useTool({
+				name: 'discover',
+				description: 'Find resources',
+				run: () => {
+					setDiscovered(true);
+					return 'found';
+				},
+			});
+			if (discovered)
+				useTool({
+					name: 'read_resource',
+					description: 'Read a found resource',
+					input: v.object({ default: v.optional(v.string(), 'resource') }),
+					run: () => 'content',
+				});
+			return 'Use available resources.';
+		}
+		const db = sqlite(`${folder}/state.sqlite`);
+		let runtime = await start({ agents: [LazyAgent], providers: [faux.provider], db });
+		try {
+			let instance = init(LazyAgent, { id: 'persistent' });
+			await instance.read(await instance.dispatch('discover now'));
+			const store = (await db.connect()).conversationStreamStore!;
+			const path = agentStreamPath('LazyAgent', 'persistent');
+			const folded = await loadReducedConversationState({ store, path });
+			await store.putFoldCheckpoint!(path, {
+				offset: folded.recordsThroughOffset,
+				incarnation: (await store.getMeta(path))!.incarnation,
+				formatVersion: REDUCED_STATE_FORMAT,
+				data: encodeReducedInstanceState(folded),
+			});
+			const declarations = [...folded.conversations.values()].find(
+				(conversation) => conversation.kind === 'root',
+			)!.toolDeclarations;
+			expect(
+				declarations.some((declaration) =>
+					declaration.toolsAdded?.some((tool) => tool.name === 'read_resource'),
+				),
+			).toBe(true);
+			await runtime.stop();
+			runtime = await start({ agents: [LazyAgent], providers: [faux.provider], db });
+			instance = init(LazyAgent, { id: 'persistent' });
+			await instance.read(await instance.dispatch('read next'));
+			const stablePrefix = (request: TranscriptContext, length: number) =>
+				request.messages.slice(0, length).map(modelMessage);
+			expect(stablePrefix(requests[2]!, requests[1]!.messages.length)).toEqual(
+				stablePrefix(requests[1]!, requests[1]!.messages.length),
+			);
+		} finally {
+			await runtime.stop();
+			await rm(folder, { recursive: true, force: true });
+		}
+	});
+});
+
+describe('instance compaction exclusion and cancellation', () => {
+	it('rejects concurrent admission and compact, cancels through instance abort, and permits retry', async () => {
+		const { start } = await import('../src/node/start.ts');
+		const { sqlite } = await import('../src/node/agent-execution-store.ts');
+		const { init } = await import('../src/agent-client.ts');
+		const { useModel } = await import('../src/hooks/use-model.ts');
+		const { agentStreamPath } = await import('../src/runtime/stream-offsets.ts');
+		let release!: () => void;
+		let entered!: () => void;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const started = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const faux = fauxProvider({
+			provider: 'cancel-compact',
+			models: [{ id: 'test', contextWindow: 100000, maxTokens: 4096 }],
+			tokensPerSecond: 0,
+		});
+		faux.setResponses([
+			fauxAssistantMessage('done'),
+			fauxAssistantMessage('done'),
+			async () => {
+				entered();
+				await held;
+				return fauxAssistantMessage('long summary '.repeat(1000));
+			},
+			fauxAssistantMessage('Concise summary'),
+		]);
+		function CancellableAgent() {
+			useModel('cancel-compact/test', {
+				compaction: { keepRecentTokens: 20, reserveTokens: 1000 },
+			});
+			return 'Instructions';
+		}
+		const db = sqlite();
+		const runtime = await start({ agents: [CancellableAgent], providers: [faux.provider], db });
+		try {
+			await expect(
+				init(CancellableAgent, { id: 'absent' }).compact({ operationId: 'missing' }),
+			).rejects.toThrow();
+			expect(
+				await (
+					await db.connect()
+				).conversationStreamStore!.getMeta(agentStreamPath('CancellableAgent', 'absent')),
+			).toBeNull();
+			const instance = init(CancellableAgent, { id: 'cancel' });
+			await instance.read(await instance.dispatch('older '.repeat(1000)));
+			await instance.read(await instance.dispatch('latest'));
+			const pending = instance.compact({ operationId: 'command' });
+			const failed = expect(pending).rejects.toThrow();
+			await started;
+			await expect(instance.dispatch('must not enter')).rejects.toThrow('busy');
+			await expect(instance.compact({ operationId: 'concurrent' })).rejects.toThrow('busy');
+			await instance.abort();
+			release();
+			await failed;
+			expect(await instance.compact({ operationId: 'command' })).toMatchObject({ compacted: true });
+		} finally {
+			release();
 			await runtime.stop();
 		}
 	});

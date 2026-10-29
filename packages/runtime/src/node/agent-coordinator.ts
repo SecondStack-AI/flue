@@ -6,6 +6,8 @@ import { LEASE_DURATION_MS } from '../agent-execution-store.ts';
 import { ConversationRecordWriter } from '../conversation-writer.ts';
 import {
 	classifyError,
+	SessionBusyError,
+	AgentInstanceNotFoundError,
 	RuntimeUnavailableError,
 	SubmissionAbortedError,
 	SubmissionConflictError,
@@ -195,12 +197,16 @@ export function createNodeAgentCoordinator(options: {
 	// ── Concurrent claim loop state ──────────────────────────────────────
 
 	/** Submissions currently being processed, keyed by submissionId. */
-	const activeSubmissions = new Map<string, { task: Promise<void>; abort: AbortController }>();
-	const compactingInstances = new Set<string>();
+	const activeSubmissions = new Map<
+		string,
+		{ task: Promise<void>; abort: AbortController; path: string }
+	>();
+	const compactingInstances = new Map<string, { abort: AbortController; done: Promise<void> }>();
 	const admittingInstances = new Map<string, number>();
 	function beginInstanceAdmission(agentName: string, instanceId: string): () => void {
 		const path = agentStreamPath(agentName, instanceId);
-		if (compactingInstances.has(path)) throw new Error('[flue] Instance is busy compacting.');
+		if (compactingInstances.has(path))
+			throw new SessionBusyError({ session: SUBMISSION_SESSION_NAME, activeOperation: 'compact' });
 		const lease = activityGate?.enter();
 		admittingInstances.set(path, (admittingInstances.get(path) ?? 0) + 1);
 		return () => {
@@ -414,7 +420,11 @@ export function createNodeAgentCoordinator(options: {
 				activeSubmissions.delete(claimed.submissionId);
 				wake();
 			});
-		activeSubmissions.set(claimed.submissionId, { task, abort: controller });
+		activeSubmissions.set(claimed.submissionId, {
+			task,
+			abort: controller,
+			path: agentStreamPath(claimed.input.agent, claimed.input.id),
+		});
 	}
 
 	// ── Claim loop ───────────────────────────────────────────────────────
@@ -437,15 +447,22 @@ export function createNodeAgentCoordinator(options: {
 			// Skip submissions already being processed in this coordinator
 			// (possible if a wake arrived between listing and claiming).
 			if (activeSubmissions.has(submission.submissionId)) continue;
-			const claimed = await submissions.claimSubmission({
-				submissionId: submission.submissionId,
-				attemptId: generateAttemptId(),
-				ownerId,
-				leaseExpiresAt: Date.now() + LEASE_DURATION_MS,
-			});
-			if (!claimed) continue;
-			progressed = true;
-			spawnSubmissionTask(claimed);
+			if (compactingInstances.has(agentStreamPath(submission.input.agent, submission.input.id)))
+				continue;
+			const finishClaim = beginInstanceAdmission(submission.input.agent, submission.input.id);
+			try {
+				const claimed = await submissions.claimSubmission({
+					submissionId: submission.submissionId,
+					attemptId: generateAttemptId(),
+					ownerId,
+					leaseExpiresAt: Date.now() + LEASE_DURATION_MS,
+				});
+				if (!claimed) continue;
+				progressed = true;
+				spawnSubmissionTask(claimed);
+			} finally {
+				finishClaim();
+			}
 		}
 		return progressed;
 	}
@@ -971,9 +988,17 @@ export function createNodeAgentCoordinator(options: {
 			if (stopping) throw new RuntimeUnavailableError({ state: 'draining' });
 			const path = agentStreamPath(agentName, instanceId);
 			if (compactingInstances.has(path) || admittingInstances.has(path))
-				throw new Error('[flue] Instance is busy.');
+				throw new SessionBusyError({
+					session: SUBMISSION_SESSION_NAME,
+					activeOperation: 'submission',
+				});
 			const lease = activityGate?.enter();
-			compactingInstances.add(path);
+			const abort = new AbortController();
+			let finishCompaction!: () => void;
+			const done = new Promise<void>((resolve) => {
+				finishCompaction = resolve;
+			});
+			compactingInstances.set(path, { abort, done });
 			try {
 				const outstanding = (
 					await Promise.all([
@@ -982,17 +1007,30 @@ export function createNodeAgentCoordinator(options: {
 						submissions.listUnreadySubmissions(),
 					])
 				).flat();
-				if (outstanding.some((row) => row.input.agent === agentName && row.input.id === instanceId))
-					throw new Error('[flue] Instance is busy.');
+				if (
+					outstanding.some((row) => row.input.agent === agentName && row.input.id === instanceId) ||
+					[...activeSubmissions.values()].some((active) => active.path === path)
+				)
+					throw new SessionBusyError({
+						session: SUBMISSION_SESSION_NAME,
+						activeOperation: 'submission',
+					});
 				if (!conversationStreamStore)
 					throw new Error('[flue] Instance compaction requires durable conversation storage.');
 				const agent = resolveAgent(agentName);
 				if (!(await conversationStreamStore.getMeta(path)))
-					throw new Error('[flue] Instance compaction requires an existing conversation.');
+					throw new AgentInstanceNotFoundError({ id: instanceId });
 				const writer = await getConversationWriter({ agent: agentName, id: instanceId });
 				const state = await writer!.loadReducedState();
-				if (state.conversations.size === 0)
-					throw new Error('[flue] Instance compaction requires an existing conversation.');
+				if (
+					![...state.conversations.values()].some(
+						(conversation) =>
+							conversation.kind === 'root' &&
+							conversation.harness === SUBMISSION_HARNESS_NAME &&
+							conversation.session === SUBMISSION_SESSION_NAME,
+					)
+				)
+					throw new AgentInstanceNotFoundError({ id: instanceId });
 				if (options.uid !== undefined && options.uid !== state.uid)
 					throw new Error('[flue] Instance compaction incarnation does not match.');
 				const ctx = createContext({
@@ -1006,7 +1044,10 @@ export function createNodeAgentCoordinator(options: {
 				const harness = await ctx.initializeRootHarness(agent, options.delivery);
 				try {
 					const session = await harness.session(SUBMISSION_SESSION_NAME);
-					const result = await session.compact(options);
+					const result = await session.compact({
+						...options,
+						signal: options.signal ? AbortSignal.any([options.signal, abort.signal]) : abort.signal,
+					});
 					await ctx.flushEventCallbacks();
 					return result;
 				} finally {
@@ -1014,7 +1055,9 @@ export function createNodeAgentCoordinator(options: {
 				}
 			} finally {
 				compactingInstances.delete(path);
+				finishCompaction();
 				lease?.release();
+				wake();
 			}
 		},
 		async reconcileSubmissions() {
@@ -1143,6 +1186,8 @@ export function createNodeAgentCoordinator(options: {
 		},
 
 		async abortInstance(agentName: string, instanceId: string): Promise<boolean> {
+			const compaction = compactingInstances.get(agentStreamPath(agentName, instanceId));
+			compaction?.abort.abort(new SubmissionAbortedError());
 			// External submissions for an instance share one durable session, so
 			// one session-scoped stamp covers the running head and every queued
 			// submission behind it. The store is shared across agents: the key
@@ -1155,7 +1200,7 @@ export function createNodeAgentCoordinator(options: {
 				SUBMISSION_SESSION_NAME,
 			);
 			const affected = await submissions.requestSessionAbort(sessionKey);
-			if (affected.length === 0) return false;
+			if (affected.length === 0) return compaction !== undefined;
 			// Abort any of those attempts running in this process at a halt point —
 			// processSubmission's catch settles them aborted. Queued ones settle via
 			// the pre-execution abort check once claimed; a stranded running owner
@@ -1341,6 +1386,8 @@ export function createNodeAgentCoordinator(options: {
 		async shutdown(timeoutMs = 30_000) {
 			if (stopping) return;
 			stopping = true;
+			for (const compaction of compactingInstances.values())
+				compaction.abort.abort(new DOMException('Coordinator shutting down.', 'AbortError'));
 
 			// Wake the claim loop so it exits (checks `stopping` flag), and
 			// wait for it — plus any detached reconciliation pass (abort paths
@@ -1366,8 +1413,12 @@ export function createNodeAgentCoordinator(options: {
 			// the timeout. The heartbeat keeps running so leases stay valid
 			// while work is still settling — this prevents a concurrent
 			// coordinator from reclaiming submissions that are still active.
-			if (activeSubmissions.size > 0) {
-				const settlement = Promise.allSettled([...activeSubmissions.values()].map((s) => s.task));
+			if (activeSubmissions.size > 0 || compactingInstances.size > 0) {
+				const settlement = Promise.allSettled(
+					[...activeSubmissions.values()]
+						.map((s) => s.task)
+						.concat([...compactingInstances.values()].map((compaction) => compaction.done)),
+				);
 				const timeout = new Promise<void>((resolve) => {
 					const timer = setTimeout(resolve, timeoutMs);
 					settlement.finally(() => clearTimeout(timer));

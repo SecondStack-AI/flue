@@ -399,12 +399,14 @@ export interface FlueFs {
 // ─── Compaction ─────────────────────────────────────────────────────────────
 
 export interface CompactOptions {
+	signal?: AbortSignal;
 	operationId?: string;
 	model?: string;
 	compaction?: CompactionConfig;
 }
 export interface CompactResult {
 	compacted: boolean;
+	usage?: PromptUsage;
 	operationId?: string;
 	summary?: string;
 	firstKeptEntryId?: string;
@@ -515,6 +517,7 @@ export interface SubagentDefinition {
  * {@link SubagentDefinition}, never authored directly.
  */
 export interface ResolvedSubagent {
+	environmentPreamble?: boolean;
 	name: string;
 	description: string;
 	model?: string;
