@@ -9,7 +9,7 @@ import { generateEntryId, generateRecordId } from './runtime/ids.ts';
 import type { PromptUsage } from './types.ts';
 
 interface ConversationRecordEnvelope {
-	v: 1;
+	v: 1 | 2;
 	id: string;
 	type: string;
 	conversationId: string;
@@ -274,6 +274,11 @@ interface ToolResultsCommittedRecord extends ConversationRecordEnvelope {
 	outcomeIds: string[];
 }
 
+export interface CompactionNoopRecord extends ConversationRecordEnvelope {
+	type: 'compaction_noop';
+	operationId: string;
+}
+
 export interface CompactionRecord extends ConversationRecordEnvelope {
 	type: 'compaction';
 	entryId: string;
@@ -476,6 +481,7 @@ export type ConversationRecord =
 	| ToolOutcomeRecord
 	| ToolResultsCommittedRecord
 	| CompactionRecord
+	| CompactionNoopRecord
 	| ChildSessionRetainedRecord
 	| SubmissionSettledRecord
 	| StateWriteRecord

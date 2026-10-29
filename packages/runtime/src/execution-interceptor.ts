@@ -1,6 +1,6 @@
 export type FlueExecutionOperation =
 	| { type: 'agent'; operationId: string; operationKind: 'prompt' | 'skill' | 'task' }
-	| { type: 'model'; turnId: string }
+	| { type: 'model'; turnId: string; purpose?: 'agent' | 'compaction' }
 	| { type: 'tool'; toolCallId: string; toolName: string }
 	| { type: 'task'; taskId: string }
 	/**

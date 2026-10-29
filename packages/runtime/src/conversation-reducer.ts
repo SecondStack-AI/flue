@@ -351,7 +351,7 @@ export interface ReducedContextEntry {
  * against from-scratch folds at every batch boundary, so shape drift without
  * a matching codec change fails CI.
  */
-export const REDUCED_STATE_FORMAT = 4;
+export const REDUCED_STATE_FORMAT = 5;
 
 export function createReducedInstanceState(): ReducedInstanceState {
 	return {
@@ -405,6 +405,7 @@ function cloneReducedInstanceState(state: ReducedInstanceState): ReducedInstance
 				id,
 				{
 					...conversation,
+					toolDeclarations: [...conversation.toolDeclarations],
 					entries: new Map(
 						[...conversation.entries].map(([entryId, entry]) => [
 							entryId,
@@ -473,7 +474,8 @@ export function applyConversationRecord(
 		if (identical) return;
 		fail(record, `Record id "${record.id}" was reused with different content.`);
 	}
-	if (record.v !== 1) fail(record, `Record version "${String(record.v)}" is unsupported.`);
+	if (record.v !== 1 && record.v !== 2)
+		fail(record, `Record version "${String(record.v)}" is unsupported.`);
 
 	if (record.type === 'conversation_created') {
 		validateConversationCreation(state, record);
@@ -899,6 +901,9 @@ export function applyConversationRecord(
 				fail(record, `A tool step memo requires its toolCallId and stepName.`);
 			}
 			break;
+		case 'compaction_noop':
+			if (!record.operationId) fail(record, 'Compaction no-op requires an operation identity.');
+			break;
 		case 'state_write':
 			state.state.set(record.name, record.value);
 			break;
@@ -988,6 +993,8 @@ function indexConversationRecord(record: ConversationRecord): IndexedConversatio
 	switch (record.type) {
 		case 'submission_settled':
 		case 'tool_step_settled':
+		case 'compaction':
+		case 'compaction_noop':
 		case 'agent_start_run':
 		case 'agent_finish_cycle':
 		case 'assistant_message_completed':
@@ -1148,16 +1155,7 @@ export function buildConversationContextEntries(
 	const keptStart = firstKeptIndex >= 0 ? firstKeptIndex : latestCompactionIndex + 1;
 	return [
 		{
-			message: createUserContextMessage(
-				renderSignalMessage({
-					role: 'signal',
-					type: 'context_summary',
-					tagName: 'compaction',
-					content: compaction.summary,
-					timestamp: new Date(compaction.timestamp).getTime(),
-				}),
-				compaction.timestamp,
-			),
+			message: createUserContextMessage(compaction.summary, compaction.timestamp),
 			sourceEntry: compaction,
 		},
 		...pathToContextEntries(path.slice(keptStart, latestCompactionIndex), options),

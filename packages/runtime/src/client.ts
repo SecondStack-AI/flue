@@ -386,15 +386,27 @@ async function initializeRootHarness(
 	// must keep describing the workspace the transcript's earlier turns
 	// actually ran in. `workspaceContext` backs the live skill merge and
 	// follows the current environment immediately.
-	let promptContext = await discoverSessionContext(env, definition.skills);
+	let promptContext = await discoverSessionContext(
+		env,
+		definition.skills,
+		definition.environmentPreamble,
+	);
 	let workspaceContext = promptContext;
 	const envRuntime: SandboxRuntime = {
 		resolve: (sandbox) => resolveSandbox(config.id, sandbox),
 		swapDiscovery: async (nextEnv) => {
-			workspaceContext = await discoverSessionContext(nextEnv, definition.skills);
+			workspaceContext = await discoverSessionContext(
+				nextEnv,
+				definition.skills,
+				definition.environmentPreamble,
+			);
 		},
 		rediscover: async (currentEnv) => {
-			const fresh = await discoverSessionContext(currentEnv, definition.skills);
+			const fresh = await discoverSessionContext(
+				currentEnv,
+				definition.skills,
+				definition.environmentPreamble,
+			);
 			promptContext = fresh;
 			workspaceContext = fresh;
 		},
@@ -439,6 +451,7 @@ async function initializeRootHarness(
 		...config.agentConfig,
 		systemPrompt: promptContext.recompose(definition.instructions),
 		instructions: definition.instructions,
+		environmentPreamble: definition.environmentPreamble,
 		definitionSkills: definition.skills,
 		skills: promptContext.skills,
 		subagents: initialResources.subagents,

@@ -100,6 +100,7 @@ export function renderAgentFunctionWithStructure(
 	const tools = frame.tools;
 	return {
 		config: {
+			environmentPreamble: frame.environmentPreamble,
 			...(frame.model !== undefined ? { model: frame.model } : {}),
 			...(instructions !== undefined ? { instructions } : {}),
 			...(tools.length > 0 ? { tools } : {}),

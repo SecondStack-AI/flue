@@ -135,6 +135,7 @@ function composeSystemPrompt(
 	agentCatalog: readonly SkillCatalogEntry[],
 	env?: { cwd: string; directoryListing?: string[] },
 	instructions?: string,
+	environmentPreamble = true,
 ): string {
 	const parts: string[] = [];
 	const pushSection = (...lines: string[]) => {
@@ -143,7 +144,7 @@ function composeSystemPrompt(
 	};
 
 	if (instructions) pushSection(instructions);
-	if (agentsMd) pushSection(agentsMd);
+	if (environmentPreamble && agentsMd) pushSection(agentsMd);
 
 	if (catalog.length > 0) {
 		pushSection(
@@ -184,6 +185,7 @@ function composeSystemPrompt(
 		);
 	}
 
+	if (!environmentPreamble) return parts.join('\n');
 	const date = new Date().toLocaleDateString('en-US', {
 		weekday: 'short',
 		year: 'numeric',
@@ -210,6 +212,7 @@ function composeSystemPrompt(
 export async function discoverSessionContext(
 	env: Sandbox | undefined,
 	definitionSkills: readonly Skill[] = [],
+	environmentPreamble = true,
 ): Promise<{
 	skills: Record<string, RegisteredSkill>;
 	recompose: (instructions?: string) => string;
@@ -219,12 +222,12 @@ export async function discoverSessionContext(
 }> {
 	// No sandbox, no workspace: nothing to discover. Declared skills still
 	// register, and the composed prompt simply carries no workspace facts.
-	const agentsMd = env ? await readAgentsMd(env, env.cwd) : '';
+	const agentsMd = env && environmentPreamble ? await readAgentsMd(env, env.cwd) : '';
 	const discoveredSkills = env ? await discoverLocalSkills(env, env.cwd) : {};
 	const skills = mergeSkillCatalog(definitionSkills, discoveredSkills);
 
 	let directoryListing: string[] | undefined;
-	if (env) {
+	if (env && environmentPreamble) {
 		try {
 			directoryListing = await env.readdir(env.cwd);
 		} catch {
@@ -261,6 +264,7 @@ export async function discoverSessionContext(
 			agentCatalog,
 			env ? { cwd: env.cwd, directoryListing } : undefined,
 			nextInstructions,
+			environmentPreamble,
 		);
 
 	// The LIVE skill map for a later render's declared skills, merged over

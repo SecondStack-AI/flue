@@ -113,6 +113,7 @@ export interface RenderFrame {
 	thinkingLevel: ThinkingLevel | undefined;
 	/** `useModel` options: threshold-compaction configuration. */
 	compaction: false | CompactionConfig | undefined;
+	environmentPreamble: boolean;
 	/** `useSkill` mounts across the whole render, in call order; names unique. */
 	skills: Skill[];
 	/** `useSubagent` declarations across the whole render, in call order; names unique. */
@@ -166,6 +167,7 @@ export function renderWithFrame<T>(
 		model: undefined,
 		thinkingLevel: undefined,
 		compaction: undefined,
+		environmentPreamble: true,
 		skills: [],
 		subagents: [],
 		mcpConnections: [],

@@ -35,7 +35,12 @@ export function assertCompaction(
 		throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
 	}
 	for (const key of Object.keys(definition)) {
-		if (key !== 'reserveTokens' && key !== 'keepRecentTokens' && key !== 'model') {
+		if (
+			key !== 'reserveTokens' &&
+			key !== 'keepRecentTokens' &&
+			key !== 'model' &&
+			key !== 'transformMessageText'
+		) {
 			throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
 		}
 	}

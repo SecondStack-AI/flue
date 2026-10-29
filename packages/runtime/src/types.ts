@@ -398,7 +398,22 @@ export interface FlueFs {
 
 // ─── Compaction ─────────────────────────────────────────────────────────────
 
+export interface CompactOptions {
+	operationId?: string;
+	model?: string;
+	compaction?: CompactionConfig;
+}
+export interface CompactResult {
+	compacted: boolean;
+	operationId?: string;
+	summary?: string;
+	firstKeptEntryId?: string;
+	sourceLeafId?: string;
+}
+
 export interface CompactionConfig {
+	/** Remove application-private admission markers before summary serialization. */
+	transformMessageText?: (text: string) => string;
 	/**
 	 * Token headroom to reserve in the context window. Compaction triggers
 	 * when used tokens exceed `contextWindow - reserveTokens`.
@@ -449,6 +464,8 @@ export interface DurabilityConfig {
 // ─── Agent Config (internal, passed to the harness at runtime) ──────────────
 
 export interface AgentConfig {
+	/** Include discovered workspace instructions and generated date/directory facts. */
+	environmentPreamble?: boolean;
 	/** Discovered at runtime from AGENTS.md + .agents/skills/ in the session's cwd. */
 	systemPrompt: string;
 	/** Agent instructions prepended ahead of discovered workspace context. */
@@ -518,6 +535,7 @@ export interface ResolvedSubagent {
 
 /** The internal runtime-config shape one render of an agent composes. */
 export interface AgentRuntimeConfig {
+	environmentPreamble?: boolean;
 	/** Default model specifier. */
 	model?: string;
 	/** Instructions prepended to discovered workspace context. */
@@ -754,7 +772,7 @@ export interface FlueHarness {
 	 * (no-op) when there is nothing to compact; rejects when summarization
 	 * fails or another operation is in flight.
 	 */
-	compact(): Promise<void>;
+	compact(options?: CompactOptions): Promise<CompactResult>;
 
 	/**
 	 * The environment this agent runs in: the live {@link Sandbox} resolved
@@ -854,7 +872,7 @@ export interface FlueSession {
 	 * followed by `compaction`. The summarization LLM cost is recorded the
 	 * same as automatic compaction.
 	 */
-	compact(): Promise<void>;
+	compact(options?: CompactOptions): Promise<CompactResult>;
 }
 
 /**
