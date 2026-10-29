@@ -39,6 +39,8 @@ export function assertCompaction(
 			key !== 'reserveTokens' &&
 			key !== 'keepRecentTokens' &&
 			key !== 'model' &&
+			key !== 'systemPrompt' &&
+			key !== 'toolResultMaxChars' &&
 			key !== 'transformMessageText'
 		) {
 			throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
@@ -46,6 +48,13 @@ export function assertCompaction(
 	}
 	assertTokenCount(definition.reserveTokens, `${label} compaction.reserveTokens`);
 	assertTokenCount(definition.keepRecentTokens, `${label} compaction.keepRecentTokens`);
+	assertTokenCount(definition.toolResultMaxChars, `${label} compaction.toolResultMaxChars`);
+	if (
+		definition.systemPrompt !== undefined &&
+		(typeof definition.systemPrompt !== 'string' || !definition.systemPrompt.trim())
+	) {
+		throw new Error(`[flue] ${label} compaction.systemPrompt must be a nonempty string.`);
+	}
 	if (definition.model !== undefined && typeof definition.model !== 'string') {
 		throw new Error(`[flue] ${label} compaction.model must be a string.`);
 	}

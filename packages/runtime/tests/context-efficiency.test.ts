@@ -151,20 +151,39 @@ describe('compaction handoff contract', () => {
 		expect(serializeCompactionMessages([result], false)).toMatchObject([
 			{ content: [{ text: 'x'.repeat(17001) }] },
 		]);
+		expect(serializeCompactionMessages([result], true, undefined, 7)).toMatchObject([
+			{ content: [{ text: 'x'.repeat(7), omittedCharacters: 16994 }] },
+		]);
 	});
-	it('makes exactly one attributed request with three source sections, no tools/reasoning, and capped output', async () => {
-		const request = vi
-			.spyOn(getRuntimeModels(), 'completeSimple')
-			.mockResolvedValue(assistant([{ type: 'text', text: 'Goal & <reference>' }]));
+	it('completes a handoff using the summary model output allowance', async () => {
+		const response = assistant([{ type: 'text', text: 'Goal & <reference>' }]);
+		response.usage = { ...usage, output: 5000 };
+		const request = vi.spyOn(getRuntimeModels(), 'completeSimple').mockResolvedValue(response);
 		const preparation = prepareCompaction(
-			[human('secret-marker older'.repeat(200)), human('correction')],
-			{ ...settings, transformMessageText: (text) => text.replaceAll('secret-marker', '') },
+			[
+				human('secret-marker older'.repeat(200)),
+				assistant([{ type: 'toolCall', id: 'read', name: 'read', arguments: {} }], 'toolUse'),
+				{
+					role: 'toolResult',
+					toolCallId: 'read',
+					toolName: 'read',
+					content: [{ type: 'text', text: 'tool evidence' }],
+					isError: false,
+					timestamp: 1,
+				},
+				human('correction'),
+			],
+			{
+				...settings,
+				toolResultMaxChars: 7,
+				transformMessageText: (text) => text.replaceAll('secret-marker', ''),
+			},
 		)!;
 		const result = await compact(preparation, model, new AbortController().signal, observer);
 		expect(result.summary).toBe('Goal & <reference>');
 		expect(request).toHaveBeenCalledTimes(1);
 		const [, context, options] = request.mock.calls[0]!;
-		expect(options).toMatchObject({ purpose: 'compaction', maxTokens: 4096 });
+		expect(options).toMatchObject({ purpose: 'compaction', maxTokens: model.maxTokens });
 		expect(options?.reasoning).toBeUndefined();
 		expect(context.tools).toEqual([]);
 		expect(context.messages).toHaveLength(1);
@@ -176,6 +195,10 @@ describe('compaction handoff contract', () => {
 		]);
 		expect(JSON.stringify(payload)).not.toContain('secret-marker');
 		expect(payload.recent_messages_retained_unchanged[0].content).toBe('correction');
+		expect(
+			payload.older_messages_to_replace.find((message: { role: string }) => message.role === 'tool')
+				.content,
+		).toEqual([{ type: 'text', text: 'tool ev', omittedCharacters: 6 }]);
 	});
 	it('rejects a provider response exceeding the resolved model output limit', async () => {
 		const response = assistant([{ type: 'text', text: 'oversized summary' }]);
@@ -350,7 +373,11 @@ async function openSession(
 				model: sessionModel,
 				resolveModel: () => summaryModel ?? sessionModel,
 				skills: {},
-				compaction: { ...settings, ...(summaryModel ? { model: 'summary' } : {}) },
+				compaction: {
+					...settings,
+					systemPrompt: 'Application handoff policy',
+					...(summaryModel ? { model: 'summary' } : {}),
+				},
 			},
 			conversationWriter: writer,
 			attachmentStore: new InMemoryAttachmentStore(),
@@ -401,6 +428,10 @@ describe('manual compaction durable replay', () => {
 		const restarted = await fixture.create();
 		expect((await restarted.compact({ operationId: 'manual-after-auto' })).compacted).toBe(true);
 		expect(request).toHaveBeenCalledTimes(2);
+		expect(request.mock.calls.map((call) => call[1].systemPrompt)).toEqual([
+			'Application handoff policy',
+			'Application handoff policy',
+		]);
 		const serialized = JSON.stringify(request.mock.calls[1]![1]);
 		expect(serialized).toContain('first handoff summary');
 		expect(serialized).toContain('retained automatic tail');
@@ -467,6 +498,35 @@ describe('manual compaction durable replay', () => {
 });
 
 describe('compaction charge and failure atomicity', () => {
+	it.each(['threshold', 'overflow'] as const)(
+		'surfaces %s summary failures without replacing context',
+		async (trigger) => {
+			const faux = fauxProvider({ provider: `compaction-failure-${trigger}`, tokensPerSecond: 0 });
+			setProvider(faux.provider);
+			const reply = fauxAssistantMessage('Latest answer');
+			if (trigger === 'overflow') {
+				reply.stopReason = 'error';
+				reply.errorMessage = 'maximum context length exceeded';
+			}
+			faux.setResponses([reply]);
+			const failure = new Error('SUMMARY-UPSTREAM-503: provider unavailable');
+			vi.spyOn(getRuntimeModels(), 'completeSimple').mockRejectedValue(failure);
+			const fixture = await openSession(
+				[userRecord('entry_earlier', null, 'Earlier facts '.repeat(2000))],
+				{ ...faux.getModel(), contextWindow: 10000 },
+				model,
+			);
+			await expect(fixture.session.prompt('Original requirement '.repeat(3000))).rejects.toThrow(
+				'SUMMARY-UPSTREAM-503',
+			);
+			const conversation = (await fixture.writer.getConversation('conv'))!;
+			expect(JSON.stringify(buildConversationContext(conversation))).toContain(
+				'Original requirement',
+			);
+			const records = (await fixture.writer.loadReducedState()).recordsById;
+			expect([...records.values()].some((record) => record.type === 'compaction')).toBe(false);
+		},
+	);
 	it('persists usage when a paid summary does not reduce context', async () => {
 		const request = vi
 			.spyOn(getRuntimeModels(), 'completeSimple')
@@ -723,7 +783,14 @@ describe('owning instance compaction API', () => {
 		);
 		const rendered: string[] = [];
 		function ManagedAgent() {
-			useModel('owner-compact/test', { compaction: { reserveTokens: 1000, keepRecentTokens: 20 } });
+			useModel('owner-compact/test', {
+				compaction: {
+					reserveTokens: 1000,
+					keepRecentTokens: 20,
+					systemPrompt: 'Application-owned handoff',
+					toolResultMaxChars: 7,
+				},
+			});
 			const delivery = useDelivery();
 			rendered.push(delivery.body);
 			return `Current application instruction epoch:${useContextEpoch() ?? 'initial'}`;
@@ -752,6 +819,7 @@ describe('owning instance compaction API', () => {
 				'Current application instruction epoch:entry_',
 			);
 			expect(requests[2]!.purpose).toBe('compaction');
+			expect(JSON.stringify(requests[2]!.context)).toContain('Application-owned handoff');
 			expect(JSON.stringify(requests[2]!.context)).not.toContain('render-only-authority');
 			const store = (await db.connect()).conversationStreamStore!;
 			const records = (

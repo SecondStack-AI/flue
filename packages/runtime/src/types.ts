@@ -414,6 +414,10 @@ export interface CompactResult {
 }
 
 export interface CompactionConfig {
+	/** System prompt for manual and automatic summary requests. */
+	systemPrompt?: string;
+	/** Text characters retained per older tool result in the summary input. */
+	toolResultMaxChars?: number;
 	/** Remove application-private admission markers before summary serialization. */
 	transformMessageText?: (text: string) => string;
 	/**
