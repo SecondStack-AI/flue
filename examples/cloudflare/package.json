@@ -8,18 +8,18 @@
 		"deploy": "vite build && wrangler deploy"
 	},
 	"dependencies": {
-		"@cloudflare/computer": "^0.1.1",
-		"@platformatic/vfs": "^0.4.0",
+		"@cloudflare/computer": "0.1.1",
+		"@platformatic/vfs": "0.4.0",
 		"@flue/runtime": "workspace:*",
-		"hono": "^4.12.32",
-		"valibot": "^1.0.0"
+		"hono": "4.12.32",
+		"valibot": "1.4.2"
 	},
 	"devDependencies": {
-		"@cloudflare/vite-plugin": "^1.39.2",
-		"@cloudflare/workers-types": "^5.20260721.1",
+		"@cloudflare/vite-plugin": "1.49.0",
+		"@cloudflare/workers-types": "5.20260731.1",
 		"@flue/cli": "workspace:*",
 		"@flue/vite": "workspace:*",
-		"vite": "^8.0.14",
-		"wrangler": "^4.113.0"
+		"vite": "8.1.5",
+		"wrangler": "4.116.0"
 	}
 }

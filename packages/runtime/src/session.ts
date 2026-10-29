@@ -21,6 +21,7 @@ import type {
 	Message,
 	Model,
 	SimpleStreamOptions,
+	SystemMessage,
 	ToolResultMessage,
 	UserMessage,
 } from '@earendil-works/pi-ai';
@@ -68,10 +69,12 @@ import {
 	compact,
 	DEFAULT_COMPACTION_SETTINGS,
 	deriveCompactionDefaults,
+	estimateCompactionMessagesTokens,
 	isAssistantContextOverflow,
 	prepareCompaction,
 	shouldCompact,
 } from './compaction.ts';
+import type { CompactionConfig, CompactOptions, CompactResult } from './types.ts';
 import { isWorkspaceSkill, skillsDirIn } from './context.ts';
 import {
 	aggregateConversationUsageSince,
@@ -90,12 +93,12 @@ import {
 	toolStepRecordId,
 } from './conversation-records.ts';
 import {
-	buildConversationContext,
 	buildConversationContextEntries,
 	getActiveConversationPath,
 	type IndexedConversationRecord,
 	type InProgressAssistantMessage,
 	type ReducedConversationState,
+	type ToolDeclaration,
 	toolOutcomeKey,
 	toolResultEntryId,
 } from './conversation-reducer.ts';
@@ -573,6 +576,7 @@ export interface RenderedResources {
  * `rebaseline` with the then-current snapshot.
  */
 export interface SessionResourceRuntime {
+	setContextEpoch?: (epoch: string | undefined) => void;
 	/** Resources of the harness-init render — the model's turn-1 view. */
 	initial: RenderedResources;
 	/** Durable snapshots from the instance's reduced stream, when present. */
@@ -691,6 +695,8 @@ function sleepUntilRetry(delayMs: number, signal: AbortSignal): Promise<void> {
 }
 
 export class Session implements FlueSession, AgentSubmissionSession {
+	private readonly contextEntryIds = new WeakMap<object, string>();
+	private automaticCompactionBlocked = false;
 	readonly name: string;
 	readonly conversationId: string;
 	readonly fs: FlueFs;
@@ -732,6 +738,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	}
 	private envRuntime: SandboxRuntime | undefined;
 	private compactionAbortController: AbortController | undefined;
+	private operationAbortController: AbortController | undefined;
 	private modelRetryAbortController: AbortController | undefined;
 	private eventCallback: FlueEventInputCallback | undefined;
 	private agentTools: ToolDefinition[];
@@ -874,7 +881,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 
 	private canonicalEnvelope(type: ConversationRecord['type'], id = generateConversationRecordId()) {
 		return {
-			v: 1 as const,
+			v: 2 as const,
 			id,
 			type,
 			conversationId: this.conversationId,
@@ -1067,6 +1074,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	private async narrateEnvironmentSnapshot(current: ResourceSnapshot): Promise<void> {
 		if (!this.resourceRuntime || !this.activeSubmissionId) return;
 		const previous = this.lastNarratedResources;
+		const known = previous ?? this.resourceRuntime.initial.snapshot;
 		const parentId = await this.conversationWriter.getConversationLeaf(this.conversationId);
 		const records: ConversationRecord[] = [];
 		// A swap at the very first boundary beats the lazy first-contact
@@ -1099,6 +1107,8 @@ export class Session implements FlueSession, AgentSubmissionSession {
 						name: subagent.name,
 						description: subagent.description,
 					})),
+					hadSkills: known.skills.length > 0,
+					hadSubagents: known.subagents.length > 0,
 				}),
 			},
 			{ advance: false },
@@ -1161,19 +1171,10 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				{ advance: false },
 			);
 		}
-		// Tool additions unlocked by the anchoring tool batch reach the model
-		// through the transcript: pi's agent loop announces tool-set changes as
-		// system messages before the next request (its transcript model carries
-		// `toolsAdded` declarations; deferred-tool-loading channels consume them
-		// via the request-tools projection). No live message marker or durable
-		// tool-addition record is needed for the LIVE transcript. Durability
-		// contract: a canonical rebuild (crash/resume, fold, compaction) does
-		// NOT preserve the historical position of these mid-conversation
-		// declarations — `rebuildCanonicalContext` rebaselines the current
-		// prompt and current tool set into the leading system message instead.
-		// Request-level tools and semantics survive identically; only the
-		// declaration placement (and thus cache-prefix / deferred-tool anchors)
-		// rebaselines to the leading message on restore.
+		// Tool-set changes reach the model through the transcript: pi's agent
+		// loop announces them as system messages before the next request, and
+		// the session persists each one as a `tool_declaration` record so a
+		// canonical rebuild replays it at the same position.
 		const { records } = this.drainSignalAppendRecords(parentId);
 		await this.appendCanonical([...records, this.resourceSnapshotRecord(current, false)]);
 		this.lastNarratedResources = current;
@@ -1241,9 +1242,13 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	 * catalogs/workspace over a post-compaction transcript until the next
 	 * compaction. In-memory swaps land only after the single durable point.
 	 */
-	private async rebaselineResources(compactionRecord: ConversationRecord): Promise<void> {
+	private async rebaselineResources(
+		compactionRecord: ConversationRecord,
+		onCommitted: () => void,
+	): Promise<void> {
 		if (!this.resourceRuntime || !this.rerender || !this.lastRenderedResources) {
 			await this.appendCanonical([compactionRecord]);
+			onCommitted();
 			return;
 		}
 		// An environment swap left the prompt describing the init-time
@@ -1260,6 +1265,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		const refreshed = this.rerender();
 		const current = refreshed.resources.snapshot;
 		await this.appendCanonical([compactionRecord, this.resourceSnapshotRecord(current, true)]);
+		onCommitted();
 		this.lastNarratedResources = current;
 		this.agentTools = refreshed.tools;
 		this.liveSkills = refreshed.resources.skills;
@@ -1365,8 +1371,9 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			);
 		}
 		const timestamp = new Date().toISOString();
+		const messageId = generateConversationEntryId();
 		this.pendingSignalAppends.push({
-			messageId: generateConversationEntryId(),
+			messageId,
 			timestamp,
 			signalType: signal.type,
 			...(signal.tagName ? { tagName: signal.tagName } : {}),
@@ -1377,19 +1384,19 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		// durable record (signals reach the model as rendered user-context
 		// messages — see buildConversationContext), so the live loop and a
 		// rehydrated context can never disagree about what the model saw.
-		this.agentLoop.steer(
-			createUserContextMessage(
-				renderSignalMessage({
-					role: 'signal',
-					type: signal.type,
-					tagName: signal.tagName,
-					content: signal.body,
-					attributes: signal.attributes,
-					timestamp: new Date(timestamp).getTime(),
-				}),
-				timestamp,
-			),
+		const message = createUserContextMessage(
+			renderSignalMessage({
+				role: 'signal',
+				type: signal.type,
+				tagName: signal.tagName,
+				content: signal.body,
+				attributes: signal.attributes,
+				timestamp: new Date(timestamp).getTime(),
+			}),
+			timestamp,
 		);
+		this.contextEntryIds.set(message, messageId);
+		this.agentLoop.steer(message);
 		// The delivery cursor tracks intentional inputs: agent-authored appends
 		// advance it exactly like delivered messages — the append IS the input
 		// the continuation turn answers. Framework narration passes
@@ -1804,6 +1811,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				'[flue] A joined delivery input entry is missing from the projected context.',
 			);
 		}
+		this.contextEntryIds.set(entry.message, entry.sourceEntry.id);
 		this.agentLoop.steer(entry.message);
 	}
 
@@ -2336,6 +2344,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 							this.activeSubmissionId !== undefined && this.responseMessageId === undefined;
 						if (isResponseFirstMessage) this.responseMessageId = messageId;
 						await this.appendCanonical([
+							...(await this.leadingToolDeclarationRecords()),
 							{
 								...this.canonicalEnvelope('assistant_message_started'),
 								type: 'assistant_message_started',
@@ -2510,6 +2519,9 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				case 'message_end': {
 					const turnId = this.activeTurnId ?? generateTurnId();
 					this.activeTurnId = turnId;
+					if (event.message.role === 'system') {
+						await this.persistToolDeclaration(event.message);
+					}
 					if (event.message.role === 'assistant') {
 						const canonical = this.canonicalAssistant;
 						if (canonical) {
@@ -2545,6 +2557,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 									...(event.message.errorMessage ? { error: event.message.errorMessage } : {}),
 								},
 							]);
+							this.contextEntryIds.set(event.message, canonical.messageId);
 							if (this.activeSubmissionId) {
 								this.responseHasCompletedStep = true;
 								const stepUsage = fromProviderUsage(event.message.usage);
@@ -2713,6 +2726,11 @@ export class Session implements FlueSession, AgentSubmissionSession {
 								outcomeIds,
 							},
 						]);
+						for (const toolResult of event.toolResults)
+							this.contextEntryIds.set(
+								toolResult,
+								toolResultEntryId(assistantMessageId, toolResult.toolCallId),
+							);
 						this.publishPendingToolResults(event.toolResults);
 						this.lastCommittedToolBatch = {
 							assistantMessageId,
@@ -2752,8 +2770,11 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		});
 	}
 
-	private resolveCompactionSettings(model: Model<any> | undefined): CompactionSettings {
-		const cc = this.config.compaction;
+	private resolveCompactionSettings(
+		model: Model<any> | undefined,
+		override?: CompactionConfig,
+	): CompactionSettings {
+		const cc = override ?? this.config.compaction;
 		const defaults = model
 			? deriveCompactionDefaults({
 					contextWindow: model.contextWindow ?? 0,
@@ -2766,10 +2787,14 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		if (!cc) {
 			return defaults;
 		}
+		const reserveTokens = cc.reserveTokens ?? defaults.reserveTokens;
 		return {
 			enabled: true,
-			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
-			keepRecentTokens: cc.keepRecentTokens ?? defaults.keepRecentTokens,
+			reserveTokens,
+			keepRecentTokens:
+				cc.keepRecentTokens ??
+				Math.max(0, Math.min(24000, Math.floor(((model?.contextWindow ?? 0) - reserveTokens) / 2))),
+			transformMessageText: cc.transformMessageText,
 		};
 	}
 
@@ -3789,13 +3814,66 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		);
 	}
 
-	async compact(): Promise<void> {
-		await this.runOperation('compact', undefined, async () => {
-			await this.runCompaction('manual');
-		});
+	async compact(options: CompactOptions = {}): Promise<CompactResult> {
+		if (options.operationId !== undefined && !options.operationId.trim())
+			throw new Error('[flue:compaction] Operation identity must not be empty.');
+		return this.runOperation(
+			'compact',
+			options.signal,
+			async () => {
+				const operationId = this.activeOperationId!;
+				const recordId = `record_compact_${encodeCanonicalId(this.conversationId)}_${encodeCanonicalId(operationId)}`;
+				const existing = await this.conversationWriter.getRecord(recordId);
+				if (existing?.type === 'compaction')
+					return {
+						compacted: true,
+						operationId,
+						summary: existing.summary,
+						firstKeptEntryId: existing.firstKeptEntryId,
+						sourceLeafId: existing.sourceLeafId,
+						usage: existing.usage,
+					};
+				if (existing?.type === 'compaction_noop')
+					return {
+						compacted: false,
+						operationId,
+						...(existing.usage ? { usage: existing.usage } : {}),
+					};
+				const outcome = await this.runCompaction('manual', options, recordId);
+				if (!outcome.compacted) {
+					if (this.operationAbortController?.signal.aborted)
+						throw abortErrorFor(this.operationAbortController.signal);
+					await this.appendCanonical([
+						{
+							...this.canonicalEnvelope('compaction_noop', recordId),
+							type: 'compaction_noop',
+							operationId,
+							usage: outcome.usage,
+						},
+					]);
+					return {
+						compacted: false,
+						operationId,
+						...(outcome.usage ? { usage: outcome.usage } : {}),
+					};
+				}
+				const result = getLatestConversationCompaction(await this.requireConversation());
+				if (!result) throw new Error('[flue:compaction] Committed summary is missing.');
+				return {
+					compacted: true,
+					operationId,
+					summary: result.summary,
+					firstKeptEntryId: result.firstKeptEntryId,
+					sourceLeafId: result.sourceLeafId,
+					usage: result.usage,
+				};
+			},
+			options.operationId,
+		);
 	}
 
 	abort(reason?: unknown): void {
+		this.operationAbortController?.abort(reason);
 		this.agentLoop.abort();
 		this.compactionAbortController?.abort(reason);
 		this.modelRetryAbortController?.abort(reason);
@@ -4596,6 +4674,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 		operation: OperationKind,
 		signal: AbortSignal | undefined,
 		fn: () => Promise<T>,
+		requestedOperationId?: string,
 	): Promise<T> {
 		const operationSignal =
 			signal && this.scopeSignal
@@ -4603,7 +4682,9 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				: (signal ?? this.scopeSignal);
 		return this.runExclusive(operation, async () => {
 			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
-			this.activeOperationId = generateOperationId();
+			this.automaticCompactionBlocked = false;
+			this.operationAbortController = new AbortController();
+			this.activeOperationId = requestedOperationId ?? generateOperationId();
 			const operationId = this.activeOperationId;
 			const startedAt = Date.now();
 			this.emit({ type: 'operation_start', operationId, operationKind: operation });
@@ -4660,6 +4741,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				operationSignal?.removeEventListener('abort', onAbort);
 				this.emit({ type: 'idle' });
 				this.activeOperationId = undefined;
+				this.operationAbortController = undefined;
 				this.activeAgentInput = undefined;
 			}
 		});
@@ -4902,39 +4984,92 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	private async rebuildCanonicalContext(): Promise<void> {
 		const conversation = await this.requireConversation();
 		const resolved = await this.resolveCanonicalContextAttachments(conversation);
-		const messages = buildConversationContext(conversation, {
+		const entries = buildConversationContextEntries(conversation, {
 			resolveAttachment: (attachment) => {
 				const image = resolved.get(attachment.id);
 				if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
 				return image;
 			},
 		});
-		// Canonical entries never carry the transcript's leading system message,
-		// and pi derives `AgentState.systemPrompt` read-only from it — so every
-		// canonical rebuild re-materializes it from the current rendered prompt
-		// and executable tools. This IS the tool-declaration durability
-		// contract: after a rebuild the current prompt and tool set are
-		// rebaselined into the leading message, and the historical position of
-		// mid-conversation tool declarations is not preserved (pi re-declares
-		// the current set against this base before the next request).
-		const lead = this.leadingSystemMessage();
+		// Canonical entries never carry the transcript's system messages, and
+		// pi derives `AgentState.systemPrompt` read-only from the leading one.
+		// The rebuild re-materializes the leading message from the current
+		// prompt and the epoch's recorded leading tool set, and replays each
+		// recorded tool-set change right after the entry it followed, so the
+		// rebuilt transcript declares tools exactly where the live one did.
+		// pi then declares any remaining difference to the executable tools
+		// before the next request.
+		const [first, ...rest] = conversation.toolDeclarations;
+		const leadDeclaration = first?.afterEntryId === null ? first : undefined;
+		const changes = new Map<string, SystemMessage[]>();
+		for (const declaration of leadDeclaration ? rest : conversation.toolDeclarations) {
+			if (declaration.afterEntryId === null) continue;
+			const list = changes.get(declaration.afterEntryId) ?? [];
+			list.push(toolDeclarationMessage(declaration));
+			changes.set(declaration.afterEntryId, list);
+		}
+		const messages: AgentMessage[] = [];
+		for (const entry of entries) {
+			this.contextEntryIds.set(entry.message, entry.sourceEntry.id);
+			messages.push(entry.message);
+			messages.push(...(changes.get(entry.sourceEntry.id) ?? []));
+		}
+		const lead = createInitialSystemMessage(
+			this.agentLoop.state.systemPrompt,
+			leadDeclaration
+				? leadDeclaration.toolsAdded
+				: this.agentLoop.state.tools.map((tool) => toToolDeclaration(tool)),
+		);
 		this.agentLoop.state.messages = lead ? [lead, ...messages] : messages;
 		this.contextCompacted = getLatestConversationCompaction(conversation) !== undefined;
 	}
 
 	/**
-	 * The transcript's leading system message: the current rendered prompt
-	 * plus the current executable tools as `toolsAdded` declarations. pi's
-	 * `createInitialSystemMessage` mirrors the seeding the `Agent` performed
-	 * at construction, so a rebuilt transcript is byte-consistent with a
-	 * freshly initialized one. `undefined` when the agent has neither a
-	 * prompt nor tools.
+	 * Durable `tool_declaration` records for the request that just started:
+	 * the epoch's leading tool set, once per context epoch (first request,
+	 * and the first request after each compaction).
 	 */
-	private leadingSystemMessage(): ReturnType<typeof createInitialSystemMessage> {
-		return createInitialSystemMessage(
-			this.agentLoop.state.systemPrompt,
-			this.agentLoop.state.tools.map((tool) => toToolDeclaration(tool)),
-		);
+	private async leadingToolDeclarationRecords(): Promise<ConversationRecord[]> {
+		const conversation = await this.requireConversation();
+		if (conversation.toolDeclarations[0]?.afterEntryId === null) return [];
+		const lead = this.agentLoop.state.messages[0];
+		const toolsAdded = lead?.role === 'system' ? lead.toolsAdded : undefined;
+		return [
+			{
+				...this.canonicalEnvelope('tool_declaration'),
+				type: 'tool_declaration',
+				afterEntryId: null,
+				...(toolsAdded && toolsAdded.length > 0 ? { toolsAdded } : {}),
+			},
+		];
+	}
+
+	/** Anchor declarations to committed entry identity, excluding unpersisted follow-up reminders. */
+	private async persistToolDeclaration(message: SystemMessage): Promise<void> {
+		if (!message.toolsAdded?.length && !message.toolsRemoved?.length) return;
+		await this.flushCanonical();
+		const live = this.agentLoop.state.messages;
+		const position = live.lastIndexOf(message);
+		const preceding = position < 0 ? live : live.slice(0, position);
+		let afterEntryId: string | undefined;
+		for (let index = preceding.length - 1; index >= 0; index--) {
+			const candidate = preceding[index]!;
+			afterEntryId = this.contextEntryIds.get(candidate);
+			if (afterEntryId) break;
+		}
+		if (!afterEntryId) throw new Error('[flue] Tool declaration has no committed context anchor.');
+		await this.appendCanonical([
+			...(await this.leadingToolDeclarationRecords()),
+			{
+				...this.canonicalEnvelope('tool_declaration'),
+				type: 'tool_declaration',
+				afterEntryId,
+				...(message.toolsAdded?.length ? { toolsAdded: structuredClone(message.toolsAdded) } : {}),
+				...(message.toolsRemoved?.length
+					? { toolsRemoved: structuredClone(message.toolsRemoved) }
+					: {}),
+			},
+		]);
 	}
 
 	// ─── Model-turn recovery and compaction ───────────────────────────────────
@@ -5032,7 +5167,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				overflowRecoveryAttempted = true;
 				this.internalLog('info', '[flue:compaction] Overflow detected, compacting...');
 				await this.rebuildCanonicalContext();
-				if (!(await this.runCompaction('overflow'))) {
+				if (!(await this.runCompaction('overflow')).compacted) {
 					if (!turnCompleted && options.resume) {
 						throw new OperationFailedError({
 							operation: options.resume.errorLabel,
@@ -5140,43 +5275,61 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	}
 
 	/**
-	 * Runs a compaction pass. The summarization cost (1–2 internal LLM
+	 * Runs a compaction pass. The summarization cost (one internal LLM
 	 * calls) is persisted on the resulting canonical compaction usage, which
 	 * `aggregateUsageSince` later folds into the surrounding call's
 	 * `response.usage` — so users see the true cost of the call that
 	 * triggered compaction.
 	 */
-	private async runCompaction(reason: 'threshold' | 'overflow' | 'manual'): Promise<boolean> {
-		this.compactionAbortController = new AbortController();
+	private async runCompaction(
+		reason: 'threshold' | 'overflow' | 'manual',
+		options: CompactOptions = {},
+		recordId?: string,
+	): Promise<CompactResult> {
+		if (reason === 'threshold' && this.automaticCompactionBlocked) return { compacted: false };
+		this.compactionAbortController = this.operationAbortController ?? new AbortController();
+		if (this.compactionAbortController.signal.aborted)
+			throw abortErrorFor(this.compactionAbortController.signal);
 		const messagesBefore = this.agentLoop.state.messages.length;
 		const compactionStartMs = Date.now();
 		// True between `compaction_start` and its terminal `compaction` event,
 		// so every started compaction emits exactly one terminal event.
 		let terminalPending = false;
+		let committed = false;
+		let previousEpoch: string | undefined;
+		let prospectiveEpoch = false;
+		let compactionFailure: unknown;
 
 		try {
-			const sessionModel = this.agentLoop.state.model;
-			const settings = this.resolveCompactionSettings(sessionModel);
+			const sessionModel = options.model
+				? this.resolveModelForCall(options.model)
+				: this.agentLoop.state.model;
+			const settings = this.resolveCompactionSettings(sessionModel, options.compaction);
 			// Summarization may use a cheaper or stronger model than the active
 			// session model, but the cut point still uses the active model's window.
 			const compactionConfig =
-				this.config.compaction === false ? undefined : this.config.compaction;
+				options.compaction ??
+				(this.config.compaction === false ? undefined : this.config.compaction);
 			const summarizationModel = compactionConfig?.model
 				? this.resolveModelForCall(compactionConfig.model)
 				: sessionModel;
 
 			const canonicalConversation = await this.requireConversation();
-			const resolvedAttachments =
-				await this.resolveCanonicalContextAttachments(canonicalConversation);
 			const contextEntries = buildConversationContextEntries(canonicalConversation, {
 				resolveAttachment: (attachment) => {
-					const image = resolvedAttachments.get(attachment.id);
-					if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
-					return image;
+					return { data: '', mimeType: attachment.mimeType };
 				},
 			});
-			const messages = contextEntries.map((entry) => entry.message);
+			const messages = contextEntries.map((entry) => ({
+				...(entry.sourceEntry.type === 'message' && entry.sourceEntry.message.role === 'signal'
+					? entry.sourceEntry.message
+					: entry.message),
+				...(entry.sourceEntry.type === 'message' && entry.sourceEntry.attachmentRefs?.size
+					? { attachmentReferences: [...entry.sourceEntry.attachmentRefs.values()] }
+					: {}),
+			}));
 			const latestCompaction = getLatestConversationCompaction(canonicalConversation);
+			previousEpoch = latestCompaction?.id;
 
 			const preparation = prepareCompaction(
 				messages,
@@ -5191,7 +5344,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			);
 			if (!preparation) {
 				this.internalLog('info', '[flue:compaction] Nothing to compact (no valid cut point found)');
-				return false;
+				return { compacted: false };
 			}
 			const firstKeptEntry = contextEntries[preparation.firstKeptIndex]?.sourceEntry;
 			if (firstKeptEntry?.type !== 'message') {
@@ -5199,15 +5352,12 @@ export class Session implements FlueSession, AgentSubmissionSession {
 					'info',
 					'[flue:compaction] Nothing to compact (first kept message has no entry)',
 				);
-				return false;
+				return { compacted: false };
 			}
 
 			this.internalLog(
 				'info',
 				`[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` +
-					(preparation.isSplitTurn
-						? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)`
-						: '') +
 					`, keeping messages from index ${preparation.firstKeptIndex}`,
 			);
 
@@ -5227,7 +5377,7 @@ export class Session implements FlueSession, AgentSubmissionSession {
 					},
 					run: (handle, execute) =>
 						interceptExecution(
-							{ type: 'model', turnId: handle.turnId },
+							{ type: 'model', turnId: handle.turnId, purpose: 'compaction' },
 							this.executionContext({ operationId: this.activeOperationId, turnId: handle.turnId }),
 							execute,
 						),
@@ -5258,7 +5408,59 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				);
 				terminalPending = false;
 				if (reason === 'manual') throw abortError;
-				return false;
+				return { compacted: false };
+			}
+
+			const projectedTokens =
+				Math.ceil(result.summary.length / 4) +
+				estimateCompactionMessagesTokens(preparation.retainedMessages);
+
+			const entryId = generateConversationEntryId();
+			this.resourceRuntime?.setContextEpoch?.(entryId);
+			prospectiveEpoch = true;
+			const prospectiveRender = this.rerender?.();
+			const overrides = this.activeCallOverrides;
+			const prospectiveTools = prospectiveRender
+				? this.assembleModelTools(
+						this.createBuiltinToolGroups(
+							this.attachedEnv,
+							overrides?.model,
+							overrides?.thinkingLevel,
+							overrides?.activePackagedSkills,
+						),
+						overrides ? [...prospectiveRender.tools, ...overrides.tools] : prospectiveRender.tools,
+						overrides?.extraTools ?? [],
+					)
+				: this.agentLoop.state.tools;
+			const requestOverhead =
+				Math.ceil(
+					((prospectiveRender?.systemPrompt ?? this.agentLoop.state.systemPrompt).length +
+						JSON.stringify(prospectiveTools.map(toToolDeclaration)).length +
+						(prospectiveRender ? JSON.stringify(prospectiveRender.resources.snapshot).length : 0)) /
+						4,
+				) + 16;
+			if (projectedTokens + requestOverhead + settings.reserveTokens > sessionModel.contextWindow)
+				throw new Error('[flue:compaction] Compacted context exceeds session working limit.');
+			if (projectedTokens >= preparation.tokensBefore) {
+				this.emit({
+					type: 'compaction',
+					messagesBefore,
+					messagesAfter: messagesBefore,
+					durationMs: durationSince(compactionStartMs),
+					isError: false,
+					usage: result.usage,
+				});
+				terminalPending = false;
+				if (reason !== 'manual')
+					await this.appendCanonical([
+						{
+							...this.canonicalEnvelope('compaction_noop'),
+							type: 'compaction_noop',
+							operationId: this.activeOperationId!,
+							usage: result.usage,
+						},
+					]);
+				return { compacted: false, usage: result.usage };
 			}
 
 			{
@@ -5269,19 +5471,26 @@ export class Session implements FlueSession, AgentSubmissionSession {
 				// resource_snapshot rides the same batch — a crash between separate
 				// appends would durably compact the context while stranding the
 				// frozen baseline at its pre-compaction state.
-				await this.rebaselineResources({
-					...this.canonicalEnvelope('compaction'),
-					type: 'compaction',
-					entryId: generateConversationEntryId(),
-					parentId: sourceLeafId,
-					summary: result.summary,
-					firstKeptEntryId: firstKeptEntry.id,
-					sourceLeafId,
-					tokensBefore: result.tokensBefore,
-					details: result.details,
-					usage: result.usage,
-				});
+				await this.rebaselineResources(
+					{
+						...this.canonicalEnvelope('compaction', recordId),
+						type: 'compaction',
+						entryId,
+						parentId: sourceLeafId,
+						summary: result.summary,
+						firstKeptEntryId: firstKeptEntry.id,
+						sourceLeafId,
+						tokensBefore: result.tokensBefore,
+						details: result.details,
+						usage: result.usage,
+					},
+					() => {
+						committed = true;
+					},
+				);
 			}
+			committed = true;
+			this.automaticCompactionBlocked = false;
 			await this.rebuildCanonicalContext();
 
 			const messagesAfter = this.agentLoop.state.messages.length;
@@ -5301,8 +5510,9 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			});
 			terminalPending = false;
 
-			return true;
+			return { compacted: true, usage: result.usage };
 		} catch (error) {
+			compactionFailure = error;
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			this.internalLog('error', `[flue:compaction] Failed: ${errorMessage}`, { error });
 			if (terminalPending) {
@@ -5321,9 +5531,23 @@ export class Session implements FlueSession, AgentSubmissionSession {
 			// Explicit `session.compact()` calls must surface their own failure;
 			// automatic threshold/overflow compaction stays best-effort.
 			if (reason === 'manual') throw error;
-			return false;
+			return { compacted: false };
 		} finally {
+			if (!committed && reason !== 'manual') this.automaticCompactionBlocked = true;
 			this.compactionAbortController = undefined;
+			if (!committed && prospectiveEpoch) {
+				this.resourceRuntime?.setContextEpoch?.(previousEpoch);
+				try {
+					this.rerender?.();
+				} catch (restoreError) {
+					if (compactionFailure !== undefined)
+						throw new AggregateError(
+							[compactionFailure, restoreError],
+							`Compaction failed: ${String(compactionFailure)}; baseline restore failed: ${String(restoreError)}`,
+						);
+					throw restoreError;
+				}
+			}
 		}
 	}
 
@@ -5357,10 +5581,18 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	 * assistant turn before retry).
 	 */
 	private async aggregateCanonicalUsageSince(beforeLeafId: string | null): Promise<PromptUsage> {
-		return (
+		let usage =
 			aggregateConversationUsageSince(await this.requireConversation(), beforeLeafId) ??
-			emptyUsage()
-		);
+			emptyUsage();
+		for (const record of (await this.conversationWriter.loadReducedState()).recordsById.values()) {
+			if (
+				record.type === 'compaction_noop' &&
+				record.operationId === this.activeOperationId &&
+				record.usage
+			)
+				usage = addUsage(usage, record.usage);
+		}
+		return usage;
 	}
 
 	private agentInvocationOutput(result: unknown): FlueObservationDetail['agentOutput'] {
@@ -6102,4 +6334,15 @@ function isPromptUsage(value: unknown): value is PromptUsage {
 		typeof (value as PromptUsage).output === 'number' &&
 		typeof (value as PromptUsage).totalTokens === 'number'
 	);
+}
+
+/** A folded `tool_declaration` change as the system message pi declared. */
+function toolDeclarationMessage(declaration: ToolDeclaration): SystemMessage {
+	return {
+		role: 'system',
+		content: '',
+		...(declaration.toolsAdded ? { toolsAdded: declaration.toolsAdded } : {}),
+		...(declaration.toolsRemoved ? { toolsRemoved: declaration.toolsRemoved } : {}),
+		timestamp: 0,
+	};
 }

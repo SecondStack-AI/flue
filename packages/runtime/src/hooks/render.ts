@@ -100,6 +100,7 @@ export function renderAgentFunctionWithStructure(
 	const tools = frame.tools;
 	return {
 		config: {
+			environmentPreamble: frame.environmentPreamble,
 			...(frame.model !== undefined ? { model: frame.model } : {}),
 			...(instructions !== undefined ? { instructions } : {}),
 			...(tools.length > 0 ? { tools } : {}),
@@ -165,6 +166,7 @@ export function resolveSubagentDefinition(
 	return {
 		name: subagent.name,
 		description: subagent.description,
+		environmentPreamble: frame.environmentPreamble,
 		...(subagent.model !== undefined ? { model: subagent.model } : {}),
 		...(subagent.thinkingLevel !== undefined ? { thinkingLevel: subagent.thinkingLevel } : {}),
 		...(instructions !== undefined ? { instructions } : {}),

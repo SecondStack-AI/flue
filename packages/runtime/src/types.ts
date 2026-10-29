@@ -398,7 +398,24 @@ export interface FlueFs {
 
 // ─── Compaction ─────────────────────────────────────────────────────────────
 
+export interface CompactOptions {
+	signal?: AbortSignal;
+	operationId?: string;
+	model?: string;
+	compaction?: CompactionConfig;
+}
+export interface CompactResult {
+	compacted: boolean;
+	usage?: PromptUsage;
+	operationId?: string;
+	summary?: string;
+	firstKeptEntryId?: string;
+	sourceLeafId?: string;
+}
+
 export interface CompactionConfig {
+	/** Remove application-private admission markers before summary serialization. */
+	transformMessageText?: (text: string) => string;
 	/**
 	 * Token headroom to reserve in the context window. Compaction triggers
 	 * when used tokens exceed `contextWindow - reserveTokens`.
@@ -408,15 +425,7 @@ export interface CompactionConfig {
 	 * half or more of a small context window.
 	 */
 	reserveTokens?: number;
-	/**
-	 * Recent tokens to preserve unsummarized after compaction. Older messages
-	 * are folded into a summary; this many tokens of recent history remain
-	 * verbatim so the model keeps immediate context (file paths, tool
-	 * results, current focus). Defaults to 8000.
-	 *
-	 * Lower values compact more aggressively at the cost of recent-context
-	 * fidelity. Setting above ~10% of the contextWindow is rarely useful.
-	 */
+	/** Recent-context target; defaults to min(24000, half the working context budget). */
 	keepRecentTokens?: number;
 	/**
 	 * Override the model used for summarization. Defaults to the session's
@@ -449,6 +458,8 @@ export interface DurabilityConfig {
 // ─── Agent Config (internal, passed to the harness at runtime) ──────────────
 
 export interface AgentConfig {
+	/** Include discovered workspace instructions and generated date/directory facts. */
+	environmentPreamble?: boolean;
 	/** Discovered at runtime from AGENTS.md + .agents/skills/ in the session's cwd. */
 	systemPrompt: string;
 	/** Agent instructions prepended ahead of discovered workspace context. */
@@ -506,6 +517,7 @@ export interface SubagentDefinition {
  * {@link SubagentDefinition}, never authored directly.
  */
 export interface ResolvedSubagent {
+	environmentPreamble?: boolean;
 	name: string;
 	description: string;
 	model?: string;
@@ -518,6 +530,7 @@ export interface ResolvedSubagent {
 
 /** The internal runtime-config shape one render of an agent composes. */
 export interface AgentRuntimeConfig {
+	environmentPreamble?: boolean;
 	/** Default model specifier. */
 	model?: string;
 	/** Instructions prepended to discovered workspace context. */
@@ -754,7 +767,7 @@ export interface FlueHarness {
 	 * (no-op) when there is nothing to compact; rejects when summarization
 	 * fails or another operation is in flight.
 	 */
-	compact(): Promise<void>;
+	compact(options?: CompactOptions): Promise<CompactResult>;
 
 	/**
 	 * The environment this agent runs in: the live {@link Sandbox} resolved
@@ -854,7 +867,7 @@ export interface FlueSession {
 	 * followed by `compaction`. The summarization LLM cost is recorded the
 	 * same as automatic compaction.
 	 */
-	compact(): Promise<void>;
+	compact(options?: CompactOptions): Promise<CompactResult>;
 }
 
 /**
@@ -862,7 +875,7 @@ export interface FlueSession {
  * single prompt(), skill(), or task() invocation, including:
  *   - every assistant turn produced by the call,
  *   - any result-extraction retry triggered by `result:` callers,
- *   - any compaction summarization (1–2 internal calls) triggered when
+ *   - any compaction summarization (one internal call) triggered when
  *     context approached the model's window during the call,
  *   - the post-compaction retry assistant turn for overflow recovery.
  *

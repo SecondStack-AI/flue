@@ -33,6 +33,7 @@ export {
 	FlueError,
 	InstrumentationAlreadyInstalledError,
 	OperationFailedError,
+	RuntimeUnavailableError,
 	SandboxDiedError,
 	SandboxOperationUnsupportedError,
 	SessionBusyError,
@@ -64,6 +65,8 @@ export { useDataWriter } from './hooks/use-data-writer.ts';
 export { useDelivery } from './hooks/use-delivery.ts';
 export { useDispatchMessage } from './hooks/use-dispatch-message.ts';
 export { useInitialData } from './hooks/use-initial-data.ts';
+export { useContextEpoch } from './hooks/use-context-epoch.ts';
+export { useEnvironmentPreamble } from './hooks/use-environment-preamble.ts';
 export { useInstruction } from './hooks/use-instruction.ts';
 export { defineMcpConnection, useMcpConnection } from './hooks/use-mcp-connection.ts';
 export { type UseModelOptions, useModel } from './hooks/use-model.ts';
@@ -127,6 +130,8 @@ export type {
 	BashLike,
 	CallHandle,
 	CompactionConfig,
+	CompactOptions,
+	CompactResult,
 	DeliveredAttachment,
 	DeliveredMessage,
 	DeliveredMessageInput,

@@ -22,17 +22,17 @@
 		"format:style": "prettier . --cache --write --list-different"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.2.0",
+		"@biomejs/biome": "2.5.6",
 		"@flue/runtime": "workspace:*",
-		"@types/node": "^26.1.1",
-		"bgproc": "^0.3.0",
-		"knip": "^6.14.2",
-		"prettier": "^3.4.2",
-		"turbo": "^2.3.3",
-		"typescript": "^7.0.2"
+		"@types/node": "26.1.2",
+		"bgproc": "0.3.0",
+		"knip": "6.29.0",
+		"prettier": "3.9.6",
+		"turbo": "2.10.7",
+		"typescript": "7.0.2"
 	},
 	"dependencies": {
-		"just-bash": "^3.0.1",
-		"valibot": "^1.1.0"
+		"just-bash": "3.2.0",
+		"valibot": "1.4.2"
 	}
 }

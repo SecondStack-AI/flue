@@ -28,6 +28,8 @@ import {
 } from './session-identity.ts';
 import type {
 	AgentConfig,
+	CompactOptions,
+	CompactResult,
 	CallHandle,
 	DeliveredMessage,
 	FlueEventInputCallback,
@@ -207,9 +209,9 @@ export class Harness implements FlueHarness {
 		);
 	}
 
-	async compact(): Promise<void> {
+	async compact(options?: CompactOptions): Promise<CompactResult> {
 		const session = await this.session();
-		return session.compact();
+		return session.compact(options);
 	}
 
 	/**
@@ -342,7 +344,11 @@ export class Harness implements FlueHarness {
 		// defaults.
 		const instructions = taskAgent?.instructions;
 		const definitionSkills = taskAgent?.skills;
-		const localContext = await discoverSessionContext(taskEnv, definitionSkills);
+		const localContext = await discoverSessionContext(
+			taskEnv,
+			definitionSkills,
+			taskAgent?.environmentPreamble ?? this.config.environmentPreamble,
+		);
 		// The child's "Available Agents" section is its own (nested) roster —
 		// a blank or leaf delegate correctly reads "None".
 		localContext.setAgentCatalog(
@@ -360,6 +366,7 @@ export class Harness implements FlueHarness {
 		}
 		const taskConfig: AgentConfig = {
 			...this.config,
+			environmentPreamble: taskAgent?.environmentPreamble ?? this.config.environmentPreamble,
 			// Recompose AFTER the agent-catalog seed above — the discovery-time
 			// composition predates it.
 			systemPrompt: localContext.recompose(instructions),

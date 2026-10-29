@@ -1,10 +1,15 @@
-import type { AssistantMessage, ToolResultMessage } from '@earendil-works/pi-ai';
+import type {
+	AssistantMessage,
+	Tool,
+	ToolReference,
+	ToolResultMessage,
+} from '@earendil-works/pi-ai';
 import type { ResourceSnapshot } from './resources.ts';
 import { generateEntryId, generateRecordId } from './runtime/ids.ts';
 import type { PromptUsage } from './types.ts';
 
 interface ConversationRecordEnvelope {
-	v: 1;
+	v: 1 | 2;
 	id: string;
 	type: string;
 	conversationId: string;
@@ -269,6 +274,12 @@ interface ToolResultsCommittedRecord extends ConversationRecordEnvelope {
 	outcomeIds: string[];
 }
 
+export interface CompactionNoopRecord extends ConversationRecordEnvelope {
+	type: 'compaction_noop';
+	operationId: string;
+	usage?: PromptUsage;
+}
+
 export interface CompactionRecord extends ConversationRecordEnvelope {
 	type: 'compaction';
 	entryId: string;
@@ -438,6 +449,23 @@ interface ResourceSnapshotRecord extends ConversationRecordEnvelope {
 	snapshot: ResourceSnapshot;
 }
 
+/**
+ * One tool-set declaration the model received, so a canonical rebuild can
+ * replay the transcript's tool state instead of rebaselining it.
+ * `afterEntryId: null` is the leading declaration: the tool set the first
+ * request of the current context epoch carried in the leading system
+ * message. Any other value is a mid-conversation change (pi's tool-change
+ * system message), placed right after that context entry. A compaction
+ * starts a new epoch: the next request records a fresh leading declaration.
+ * Not a graph entry, so it never moves the leaf.
+ */
+interface ToolDeclarationRecord extends ConversationRecordEnvelope {
+	type: 'tool_declaration';
+	afterEntryId: string | null;
+	toolsAdded?: Tool[];
+	toolsRemoved?: ToolReference[];
+}
+
 export type ConversationRecord =
 	| ConversationCreatedRecord
 	| UserMessageRecord
@@ -454,6 +482,7 @@ export type ConversationRecord =
 	| ToolOutcomeRecord
 	| ToolResultsCommittedRecord
 	| CompactionRecord
+	| CompactionNoopRecord
 	| ChildSessionRetainedRecord
 	| SubmissionSettledRecord
 	| StateWriteRecord
@@ -462,7 +491,8 @@ export type ConversationRecord =
 	| MessageDataWriteRecord
 	| MessageMetadataRecord
 	| ToolStepSettledRecord
-	| ResourceSnapshotRecord;
+	| ResourceSnapshotRecord
+	| ToolDeclarationRecord;
 
 export function generateConversationRecordId(): string {
 	return generateRecordId();

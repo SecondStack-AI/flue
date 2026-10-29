@@ -52,7 +52,20 @@ import { generateInstanceId } from './runtime/ids.ts';
 import { normalizeMessageInput } from './runtime/message-input.ts';
 import { getRegisteredAgentIdentity } from './runtime/registration.ts';
 import { agentStreamPath } from './runtime/stream-offsets.ts';
-import type { Agent, AgentDispatchRequest, DispatchReceipt } from './types.ts';
+import type {
+	Agent,
+	AgentDispatchRequest,
+	CompactOptions,
+	CompactResult,
+	DeliveredMessage,
+	DispatchReceipt,
+} from './types.ts';
+
+export interface AgentCompactRequest extends CompactOptions {
+	uid?: string | null;
+	/** Render-only authority/context; never appended to conversation history. */
+	delivery?: DeliveredMessage;
+}
 
 export interface InitOptions {
 	/**
@@ -124,6 +137,7 @@ export class AgentRunError extends Error {
 
 /** A programmatic handle addressing one agent instance. */
 export interface AgentInstanceHandle {
+	compact(options: AgentCompactRequest): Promise<CompactResult>;
 	/** The instance address this handle targets. */
 	readonly id: string;
 	/**
@@ -202,6 +216,15 @@ export function init(agent: Agent, options: InitOptions = {}): AgentInstanceHand
 
 	return {
 		id,
+		async compact(options) {
+			const rt = requireRuntime('init');
+			if (rt.target !== 'node')
+				throw new Error('[flue] Instance compaction requires the Node owning runtime.');
+			return rt.compactAgentInstance(resolveAgentName(agent, 'init'), id, {
+				...options,
+				...uidCondition(),
+			});
+		},
 
 		async dispatch(request) {
 			const payload = normalizeHandleDispatchRequest(request);

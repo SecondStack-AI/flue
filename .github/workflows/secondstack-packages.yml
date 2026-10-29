@@ -1,0 +1,63 @@
+name: SecondStack packages
+
+on:
+  push:
+    tags: ['secondstack-v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.21.0
+          registry-url: https://npm.pkg.github.com
+          scope: '@secondstack-ai'
+          cache: pnpm
+      - name: Install pinned dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build runtime and PostgreSQL adapter
+        run: pnpm --filter @flue/runtime --filter @flue/postgres build
+      - name: Validate runtime and PostgreSQL adapter
+        run: |
+          pnpm --filter @flue/runtime --filter @flue/postgres check:types
+          pnpm --filter @flue/runtime --filter @flue/postgres test
+      - name: Prepare immutable packages
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${RELEASE_TAG#secondstack-v}"
+          else
+            version=2.3.0-secondstack.1
+          fi
+          node secondstack/prepare-packages.mjs "$version"
+          cd dist/secondstack-packages/runtime
+          npm pack --json > ../runtime-pack.json
+          cd ../postgres
+          npm pack --json > ../postgres-pack.json
+      - name: Retain packages and integrity evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: secondstack-flue-packages
+          path: dist/secondstack-packages
+      - name: Publish to GitHub Packages
+        if: github.ref_type == 'tag'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm publish dist/secondstack-packages/runtime/*.tgz --tag secondstack --registry=https://npm.pkg.github.com
+          npm publish dist/secondstack-packages/postgres/*.tgz --tag secondstack --registry=https://npm.pkg.github.com

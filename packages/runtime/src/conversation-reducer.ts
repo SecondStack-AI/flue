@@ -2,6 +2,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type {
 	AssistantMessage,
 	JsonObject,
+	SystemMessage,
 	ToolResultMessage,
 	UserMessage,
 } from '@earendil-works/pi-ai';
@@ -179,6 +180,19 @@ interface ReducedConversationStateBase {
 	 * interrupted tool batch legitimately reads across the settlement.
 	 */
 	attemptScopedRecordIds: Map<string, string[]>;
+	/**
+	 * The current context epoch's tool declarations in stream order (see
+	 * `tool_declaration`): the leading declaration first, then each
+	 * mid-conversation change. A compaction clears it.
+	 */
+	toolDeclarations: ToolDeclaration[];
+}
+
+/** One folded `tool_declaration` record. */
+export interface ToolDeclaration {
+	afterEntryId: string | null;
+	toolsAdded?: SystemMessage['toolsAdded'];
+	toolsRemoved?: SystemMessage['toolsRemoved'];
 }
 
 interface ResponseDataPart {
@@ -337,7 +351,7 @@ export interface ReducedContextEntry {
  * against from-scratch folds at every batch boundary, so shape drift without
  * a matching codec change fails CI.
  */
-export const REDUCED_STATE_FORMAT = 3;
+export const REDUCED_STATE_FORMAT = 5;
 
 export function createReducedInstanceState(): ReducedInstanceState {
 	return {
@@ -391,6 +405,7 @@ function cloneReducedInstanceState(state: ReducedInstanceState): ReducedInstance
 				id,
 				{
 					...conversation,
+					toolDeclarations: [...conversation.toolDeclarations],
 					entries: new Map(
 						[...conversation.entries].map(([entryId, entry]) => [
 							entryId,
@@ -459,7 +474,8 @@ export function applyConversationRecord(
 		if (identical) return;
 		fail(record, `Record id "${record.id}" was reused with different content.`);
 	}
-	if (record.v !== 1) fail(record, `Record version "${String(record.v)}" is unsupported.`);
+	if (record.v !== 1 && record.v !== 2)
+		fail(record, `Record version "${String(record.v)}" is unsupported.`);
 
 	if (record.type === 'conversation_created') {
 		validateConversationCreation(state, record);
@@ -485,6 +501,7 @@ export function applyConversationRecord(
 			responseDataParts: new Map(),
 			lastAssistantEntryBySubmission: new Map(),
 			attemptScopedRecordIds: new Map(),
+			toolDeclarations: [],
 		});
 		state.conversationScopes.set(scopeKey, record.conversationId);
 		state.recordsById.set(record.id, indexConversationRecord(record));
@@ -803,6 +820,9 @@ export function applyConversationRecord(
 				details: record.details,
 				usage: record.usage,
 			});
+			// The rebuilt context after a compaction leads with the then-current
+			// tool set; the next request records it as the new epoch's lead.
+			conversation.toolDeclarations = [];
 			break;
 		case 'child_session_retained': {
 			validateChildReference(record);
@@ -881,6 +901,9 @@ export function applyConversationRecord(
 				fail(record, `A tool step memo requires its toolCallId and stepName.`);
 			}
 			break;
+		case 'compaction_noop':
+			if (!record.operationId) fail(record, 'Compaction no-op requires an operation identity.');
+			break;
 		case 'state_write':
 			state.state.set(record.name, record.value);
 			break;
@@ -897,6 +920,22 @@ export function applyConversationRecord(
 			// through the transcript's system messages on replay (pi 0.87), so
 			// no live marker needs restoring on the tool result message.
 			break;
+		case 'tool_declaration': {
+			const declaration: ToolDeclaration = {
+				afterEntryId: record.afterEntryId,
+				...(record.toolsAdded ? { toolsAdded: record.toolsAdded } : {}),
+				...(record.toolsRemoved ? { toolsRemoved: record.toolsRemoved } : {}),
+			};
+			if (record.afterEntryId === null) {
+				conversation.toolDeclarations = [declaration];
+			} else {
+				if (!conversation.entries.has(record.afterEntryId)) {
+					fail(record, `Tool declaration anchor "${record.afterEntryId}" does not exist.`);
+				}
+				conversation.toolDeclarations.push(declaration);
+			}
+			break;
+		}
 		case 'agent_start_run':
 		case 'agent_finish_cycle':
 			// Lifecycle-hook bookkeeping: the session reads these straight from
@@ -954,6 +993,8 @@ function indexConversationRecord(record: ConversationRecord): IndexedConversatio
 	switch (record.type) {
 		case 'submission_settled':
 		case 'tool_step_settled':
+		case 'compaction':
+		case 'compaction_noop':
 		case 'agent_start_run':
 		case 'agent_finish_cycle':
 		case 'assistant_message_completed':
@@ -1114,16 +1155,7 @@ export function buildConversationContextEntries(
 	const keptStart = firstKeptIndex >= 0 ? firstKeptIndex : latestCompactionIndex + 1;
 	return [
 		{
-			message: createUserContextMessage(
-				renderSignalMessage({
-					role: 'signal',
-					type: 'context_summary',
-					tagName: 'compaction',
-					content: compaction.summary,
-					timestamp: new Date(compaction.timestamp).getTime(),
-				}),
-				compaction.timestamp,
-			),
+			message: createUserContextMessage(compaction.summary, compaction.timestamp),
 			sourceEntry: compaction,
 		},
 		...pathToContextEntries(path.slice(keptStart, latestCompactionIndex), options),
@@ -1150,7 +1182,7 @@ function pathToContextEntries(
 			index += 1;
 			continue;
 		}
-		const message = resolveMessageAttachments(entry, options);
+		const message = projectConversationMessage(entry, options);
 		if (message.role === 'signal') {
 			messages.push({
 				message: createUserContextMessage(renderSignalMessage(message), entry.timestamp),
@@ -1189,7 +1221,7 @@ function pathToContextEntries(
 				while (resultIndex < path.length) {
 					const result = path[resultIndex];
 					if (result?.type !== 'message' || result.message.role !== 'toolResult') break;
-					results.push(resolveMessageAttachments(result, options) as ToolResultMessage);
+					results.push(projectConversationMessage(result, options) as ToolResultMessage);
 					resultIndex += 1;
 				}
 				if (isCompleteToolBatch(toolCalls, results)) {
@@ -1488,7 +1520,7 @@ function toolResultMessage(
 	} as ToolResultMessage as AgentMessage;
 }
 
-function resolveMessageAttachments(
+function projectConversationMessage(
 	entry: ReducedMessageEntry,
 	options: ConversationProjectionOptions,
 ): AgentMessage {
@@ -1521,7 +1553,13 @@ function resolveMessageAttachments(
 	if (!manifestProjected && attachments.length > 0) {
 		content.unshift({ type: 'text', text: attachmentManifest('', attachments) });
 	}
-	return { ...message, content } as AgentMessage;
+	return {
+		...message,
+		content,
+		...(message.role === 'toolResult' && entry.toolOutput
+			? { details: { customTool: message.toolName, output: entry.toolOutput.value } }
+			: {}),
+	} as AgentMessage;
 }
 
 function attachmentManifest(text: string, attachments: readonly AttachmentRef[]): string {

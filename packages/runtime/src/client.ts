@@ -1,3 +1,4 @@
+import { getLatestConversationCompaction } from './conversation-projections.ts';
 import { discoverSessionContext, skillCatalogEntries } from './context.ts';
 import { ConversationRecordWriter } from './conversation-writer.ts';
 import { normalizeLogAttributes } from './errors.ts';
@@ -319,7 +320,13 @@ async function initializeRootHarness(
 	// it starts as the waking delivery and the session advances it when a
 	// delivery joins the live response or a lifecycle callback appends a
 	// signal, so every re-render's `useDelivery()` reads the latest input.
+	const rootConversation = [...reduced.conversations.values()].find(
+		(conversation) => conversation.kind === 'root',
+	);
 	const renderState: RenderStateContext = {
+		contextEpoch: rootConversation
+			? getLatestConversationCompaction(rootConversation)?.id
+			: undefined,
 		snapshot: reduced.state,
 		store: hookState,
 		output: outputChannel,
@@ -386,15 +393,27 @@ async function initializeRootHarness(
 	// must keep describing the workspace the transcript's earlier turns
 	// actually ran in. `workspaceContext` backs the live skill merge and
 	// follows the current environment immediately.
-	let promptContext = await discoverSessionContext(env, definition.skills);
+	let promptContext = await discoverSessionContext(
+		env,
+		definition.skills,
+		definition.environmentPreamble,
+	);
 	let workspaceContext = promptContext;
 	const envRuntime: SandboxRuntime = {
 		resolve: (sandbox) => resolveSandbox(config.id, sandbox),
 		swapDiscovery: async (nextEnv) => {
-			workspaceContext = await discoverSessionContext(nextEnv, definition.skills);
+			workspaceContext = await discoverSessionContext(
+				nextEnv,
+				definition.skills,
+				definition.environmentPreamble,
+			);
 		},
 		rediscover: async (currentEnv) => {
-			const fresh = await discoverSessionContext(currentEnv, definition.skills);
+			const fresh = await discoverSessionContext(
+				currentEnv,
+				definition.skills,
+				definition.environmentPreamble,
+			);
 			promptContext = fresh;
 			workspaceContext = fresh;
 		},
@@ -439,6 +458,7 @@ async function initializeRootHarness(
 		...config.agentConfig,
 		systemPrompt: promptContext.recompose(definition.instructions),
 		instructions: definition.instructions,
+		environmentPreamble: definition.environmentPreamble,
 		definitionSkills: definition.skills,
 		skills: promptContext.skills,
 		subagents: initialResources.subagents,
@@ -471,6 +491,9 @@ async function initializeRootHarness(
 		};
 	};
 	const resourceRuntime: SessionResourceRuntime = {
+		setContextEpoch: (epoch) => {
+			renderState.contextEpoch = epoch;
+		},
 		initial: initialResources,
 		...(durableResources?.baseline ? { baseline: durableResources.baseline } : {}),
 		...(durableResources?.narrated ? { narrated: durableResources.narrated } : {}),

@@ -36,22 +36,22 @@
 	},
 	"dependencies": {
 		"@flue/runtime": "workspace:*",
-		"@hono/node-server": "^2.0.3",
-		"agents": "^0.20.1",
-		"magic-string": "^1.0.0",
-		"tinyglobby": "^0.2.15",
-		"ulidx": "^2.4.1"
+		"@hono/node-server": "2.0.12",
+		"agents": "0.20.1",
+		"magic-string": "1.1.0",
+		"tinyglobby": "0.2.17",
+		"ulidx": "2.4.1"
 	},
 	"peerDependencies": {
 		"vite": "^8.0.0"
 	},
 	"devDependencies": {
-		"@cloudflare/vite-plugin": "^1.39.2",
-		"@earendil-works/pi-ai": "^1.1.0",
-		"hono": "^4.12.32",
-		"tsdown": "^0.22.7",
-		"typescript": "^7.0.2",
-		"vite": "^8.1.2",
-		"vitest": "^4.1.6"
+		"@cloudflare/vite-plugin": "1.49.0",
+		"@earendil-works/pi-ai": "1.1.0",
+		"hono": "4.12.32",
+		"tsdown": "0.22.14",
+		"typescript": "7.0.2",
+		"vite": "8.1.5",
+		"vitest": "4.1.10"
 	}
 }

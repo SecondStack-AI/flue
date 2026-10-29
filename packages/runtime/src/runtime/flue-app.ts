@@ -1,4 +1,6 @@
 import type { ConversationRecord } from '../conversation-records.ts';
+import type { AgentCompactRequest } from '../agent-client.ts';
+import type { CompactResult } from '../types.ts';
 import { configureErrorRendering, InvalidRequestError } from '../errors.ts';
 import type {
 	Agent,
@@ -23,6 +25,11 @@ interface RuntimeBase {
 }
 
 export interface NodeRuntime extends RuntimeBase {
+	compactAgentInstance: (
+		agentName: string,
+		instanceId: string,
+		options: AgentCompactRequest,
+	) => Promise<CompactResult>;
 	target: 'node';
 	createAgentAdmission: (agentName: string, instanceId: string) => AttachedAgentSubmissionAdmission;
 	/**

@@ -5,15 +5,15 @@
 	"dependencies": {
 		"@flue/opentelemetry": "workspace:*",
 		"@flue/runtime": "workspace:*",
-		"@opentelemetry/api": "^1.9.0",
-		"@sentry/node": "^10.64.0",
-		"hono": "^4.12.32",
-		"valibot": "^1.0.0"
+		"@opentelemetry/api": "1.9.1",
+		"@sentry/node": "10.69.0",
+		"hono": "4.12.32",
+		"valibot": "1.4.2"
 	},
 	"devDependencies": {
 		"@flue/cli": "workspace:*",
 		"@flue/vite": "workspace:*",
-		"vite": "^8.0.14"
+		"vite": "8.1.5"
 	},
 	"scripts": {
 		"build": "vite build"

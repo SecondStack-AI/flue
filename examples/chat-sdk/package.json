@@ -8,20 +8,20 @@
 		"test:e2e": "node ./test/e2e.mjs"
 	},
 	"dependencies": {
-		"@chat-adapter/github": "*",
-		"@chat-adapter/state-memory": "*",
-		"@earendil-works/pi-ai": "^1.1.0",
+		"@chat-adapter/github": "4.35.0",
+		"@chat-adapter/state-memory": "4.35.0",
+		"@earendil-works/pi-ai": "1.1.0",
 		"@flue/runtime": "workspace:*",
-		"chat": "*",
-		"hono": "^4.12.32",
-		"just-bash": "^3.0.1",
-		"valibot": "^1.0.0"
+		"chat": "4.35.0",
+		"hono": "4.12.32",
+		"just-bash": "3.2.0",
+		"valibot": "1.4.2"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^5.20260721.1",
+		"@cloudflare/workers-types": "5.20260731.1",
 		"@flue/cli": "workspace:*",
 		"@flue/vite": "workspace:*",
-		"vite": "^8.0.14",
-		"wrangler": "^4.113.0"
+		"vite": "8.1.5",
+		"wrangler": "4.116.0"
 	}
 }
