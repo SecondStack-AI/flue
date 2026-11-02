@@ -266,6 +266,88 @@ async function retainedStream(
 }
 
 describe('bounded durable submission updates', () => {
+	it.each(['page', 'observer'] as const)(
+		'keeps the consumed cursor when a concurrent append overtakes the %s head',
+		async (mode) => {
+			const { store, path, append } = await retainedStream(30, 'stop', false);
+			let pageReads = 0;
+			const concurrent = new Proxy(store, {
+				get(target, key) {
+					if (key === 'read')
+						return async (...args: Parameters<ConversationStreamStore['read']>) => {
+							if (args[1]?.limit === 100 && ++pageReads === 2)
+								await append(
+									[
+										{
+											...envelope,
+											submissionId: 'target',
+											attemptId: 'attempt',
+											type: 'submission_settled',
+											id: 'concurrent_settlement',
+											outcome: 'completed',
+										},
+									],
+									'target',
+								);
+							return target.read(...args);
+						};
+					const value = Reflect.get(target, key);
+					return typeof value === 'function' ? value.bind(target) : value;
+				},
+			});
+			if (mode === 'page') {
+				const first = await readAgentSubmissionUpdates({
+					store: concurrent,
+					path,
+					submissionId: 'target',
+				});
+				expect(first.cursor).toBeDefined();
+				const raced = await readAgentSubmissionUpdates({
+					store: concurrent,
+					path,
+					submissionId: 'target',
+					after: first.cursor,
+				});
+				expect(raced.chunks).toEqual([]);
+				expect(raced.truncated).toBe(true);
+				expect(raced.cursor).toEqual(first.cursor);
+				const next = await readAgentSubmissionUpdates({
+					store: concurrent,
+					path,
+					submissionId: 'target',
+					after: raced.cursor,
+				});
+				expect(next.chunks.map((chunk) => chunk.type)).toEqual(['submission-settled']);
+				expect(next.truncated).toBe(false);
+				expect(next.settlement?.outcome).toBe('completed');
+				return;
+			}
+			registerProjectionOracle(concurrent);
+			vi.useFakeTimers();
+			try {
+				const events: ConversationStreamChunk[] = [];
+				const outcome = Promise.allSettled([
+					init(StreamProofAgent, { id: 'retained' }).read('target', {
+						scope: 'submission',
+						onEvent: (chunk) => events.push(chunk),
+					}),
+				]);
+				await vi.advanceTimersByTimeAsync(30_000);
+				const [result] = await outcome;
+				expect(result?.status).toBe('fulfilled');
+				if (result?.status !== 'fulfilled')
+					throw new Error('Concurrent append lost the scoped reply');
+				expect(result.value.text).toBe('0 1 2 3 4 5 6 7 8 9 10 11 ');
+				expect(events.filter((chunk) => chunk.type === 'submission-settled')).toHaveLength(1);
+				expect(new Set(events.map((chunk) => JSON.stringify(chunk.position))).size).toBe(
+					events.length,
+				);
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
+
 	it.each(['stop', 'aborted', 'failed'] as const)(
 		'keeps default/scoped replies and typed %s outcomes equivalent',
 		async (outcome) => {

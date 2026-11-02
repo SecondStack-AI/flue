@@ -27,7 +27,7 @@ Outside Actions, registry reads require an approved `read:packages` token throug
 Credentials must never enter package archives, lockfiles or image layers.
 Grant the SecondStack repository Actions read access to both packages before adopting a version.
 
-`2.3.0-secondstack.10` moves SecondStack's submission-stream implementation into the fork's source and normal package build.
+`2.3.0-secondstack.11` includes the native submission-stream implementation and preserves resume cursors when concurrent writes overtake a page's fold head.
 Its API, checkpoint compatibility and validation are documented in [Submission streaming](./submission-streaming.md).
 Consumers must use the published packages without modifying compiled bundles.
 

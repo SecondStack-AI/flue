@@ -51,7 +51,8 @@ export async function readAgentSubmissionUpdates(options: {
 		limit: options.batchLimit ?? 100,
 	});
 	const chunks: ConversationStreamChunk[] = [];
-	let cursor: Position | undefined;
+	// A concurrent append may be newer than this page's fold head; preserve the consumed position.
+	let cursor: Position | undefined = after;
 	let scanned = 0;
 	let cut = false;
 	readBatches: for (const batch of read.batches) {
