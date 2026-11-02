@@ -7,6 +7,10 @@
  */
 
 export { createAgentRouter } from './runtime/registration.ts';
+export {
+	type AgentSubmissionUpdatesPage,
+	readAgentSubmissionUpdates,
+} from './runtime/submission-updates.ts';
 
 /**
  * Structural contract for the default export of an authored `app.ts` entry.

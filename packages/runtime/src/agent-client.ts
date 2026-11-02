@@ -52,6 +52,7 @@ import { generateInstanceId } from './runtime/ids.ts';
 import { normalizeMessageInput } from './runtime/message-input.ts';
 import { getRegisteredAgentIdentity } from './runtime/registration.ts';
 import { agentStreamPath } from './runtime/stream-offsets.ts';
+import { createAgentSubmissionChunkFilter } from './runtime/submission-updates.ts';
 import type {
 	Agent,
 	AgentDispatchRequest,
@@ -94,6 +95,8 @@ export interface InitOptions {
 export type AgentHandleDispatchRequest = Omit<AgentDispatchRequest, 'id' | 'uid'>;
 
 export interface AgentReadOptions {
+	/** Select this submission and subsequent root user inputs; omit for the full conversation. */
+	scope?: 'submission';
 	/** Receives every projected conversation chunk as it is durably recorded. */
 	onEvent?: (chunk: ConversationStreamChunk) => void;
 	/**
@@ -325,6 +328,7 @@ interface SettlementTransport {
 	/** Durable abort intent; the aborted settlement arrives on the stream. */
 	requestAbort(): Promise<unknown>;
 	observe(target: {
+		scope?: 'submission';
 		submissionId: string;
 		offset: string;
 		onEvent?: (chunk: ConversationStreamChunk) => void;
@@ -345,6 +349,7 @@ async function awaitSettledReply(
 	options: AgentReadOptions,
 ): Promise<AgentReply> {
 	const settlement = await transport.observe({
+		...(options.scope === undefined ? {} : { scope: options.scope }),
 		submissionId: target.submissionId,
 		offset: target.offset,
 		...(options.onEvent !== undefined ? { onEvent: options.onEvent } : {}),
@@ -385,6 +390,7 @@ function nodeSettlementTransport(
 		requestAbort: () => node.abortAgentInstance(agentName, instanceId),
 		observe: (target) =>
 			observeSubmissionSettlement({
+				...(target.scope === undefined ? {} : { scope: target.scope }),
 				store: node.conversationStreamStore,
 				path,
 				submissionId: target.submissionId,
@@ -441,6 +447,10 @@ function cloudflareSettlementTransport(
 			return response;
 		},
 		async observe(target) {
+			const accepts =
+				target.scope === 'submission'
+					? createAgentSubmissionChunkFilter(target.submissionId)
+					: () => true;
 			let offset = target.offset;
 			while (true) {
 				throwIfAborted(target.signal);
@@ -463,7 +473,7 @@ function cloudflareSettlementTransport(
 					// conversation content; the in-process transport never emits
 					// them, so skipping keeps onEvent identical on both targets.
 					if (chunk.type === 'stream-checkpoint') continue;
-					target.onEvent?.(chunk);
+					if (accepts(chunk)) target.onEvent?.(chunk);
 					settlement ??= settlementFromChunk(chunk, target.submissionId);
 				}
 				if (settlement) return settlement;

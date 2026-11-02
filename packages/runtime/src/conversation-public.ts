@@ -3,13 +3,14 @@ import {
 	type ConversationUiSnapshot,
 	classifySignal,
 	projectConversationUi,
-	supersededAssistantErrorEntryIds,
 } from './conversation-projections.ts';
 import type { ConversationRecord, SubmissionSettledRecord } from './conversation-records.ts';
 import type { ReducedConversationState, ReducedInstanceState } from './conversation-reducer.ts';
 import {
-	getActiveConversationPath,
+	buildResponseMessageIndex,
 	hasUncommittedToolBatchAtLeaf,
+	requiresSnapshotReset,
+	selectRootConversation,
 	toolResultEntryId,
 } from './conversation-reducer.ts';
 import { toolResultOutput, toolResultText } from './message-rendering.ts';
@@ -182,27 +183,6 @@ export interface ConversationStreamCheckpointChunk {
 export type ConversationStreamWireChunk =
 	ConversationStreamChunk | ConversationStreamCheckpointChunk;
 
-// The public conversation API addresses exactly one conversation per agent
-// instance: the default harness/session root. An instance can hold other root
-// conversations too (internal named sessions each open one), so the default
-// must be selected by its stable identity rather than by record order. Fall
-// back to any root only when no default scope exists, preserving the prior
-// behavior for instances that never used the default session.
-const DEFAULT_HARNESS = 'default';
-const DEFAULT_SESSION = 'default';
-
-function selectRootConversation(state: ReducedInstanceState) {
-	const roots = [...state.conversations.values()].filter(
-		(conversation) => conversation.kind === 'root',
-	);
-	return (
-		roots.find(
-			(conversation) =>
-				conversation.harness === DEFAULT_HARNESS && conversation.session === DEFAULT_SESSION,
-		) ?? roots[0]
-	);
-}
-
 export function projectAgentConversationSnapshot(
 	state: ReducedInstanceState,
 ): AgentConversationSnapshot | undefined {
@@ -272,6 +252,8 @@ export function projectAgentConversationBatch(options: {
 	records: readonly ConversationRecord[];
 	/** Durable batch ordinal these records were read at; stamped onto each chunk. */
 	batchOrdinal: number;
+	responseIds?: Map<string, string>;
+	snapshotReset?: boolean;
 }): ConversationStreamChunk[] {
 	const conversation =
 		selectRootConversation(options.state) ??
@@ -283,7 +265,10 @@ export function projectAgentConversationBatch(options: {
 
 	// A reset subsumes the whole batch: a fresh snapshot already reflects every
 	// record in it, so emitting per-record chunks too would double-apply.
-	if (relevant.some((record) => requiresSnapshotReset(record, options.state))) {
+	if (
+		options.snapshotReset ??
+		relevant.some((record) => requiresSnapshotReset(record, options.state))
+	) {
 		const snapshot = projectAgentConversationSnapshot(options.state);
 		return snapshot
 			? withPositions(
@@ -293,34 +278,11 @@ export function projectAgentConversationBatch(options: {
 			: [];
 	}
 
-	const responseIds = buildResponseMessageIndex(conversation);
+	const responseIds = options.responseIds ?? buildResponseMessageIndex(conversation);
 	return withPositions(
 		relevant.flatMap((record) => encodeRecord(record, conversationId, options.state, responseIds)),
 		options.batchOrdinal,
 	);
-}
-
-/**
- * Map each tracked submission to its response message id — the first
- * assistant messageId recorded for the submission. Chunk encoding rewrites
- * every assistant-scoped record onto this id so the live stream assembles the
- * same one-message-per-response shape the snapshot projection produces (a
- * later step's `message-started` then dedupes client-side and its parts
- * accumulate on the open message).
- */
-function buildResponseMessageIndex(conversation: ReducedConversationState): Map<string, string> {
-	const first = new Map<string, string>();
-	for (const entry of getActiveConversationPath(conversation)) {
-		if (entry.type !== 'message' || entry.message.role !== 'assistant' || !entry.submissionId) {
-			continue;
-		}
-		if (!first.has(entry.submissionId)) first.set(entry.submissionId, entry.id);
-	}
-	for (const message of conversation.inProgressMessages.values()) {
-		if (!message.submissionId || first.has(message.submissionId)) continue;
-		first.set(message.submissionId, message.messageId);
-	}
-	return first;
 }
 
 /**
@@ -334,25 +296,6 @@ function withPositions(
 	batch: number,
 ): ConversationStreamChunk[] {
 	return bodies.map((body, index) => ({ ...body, position: { batch, index } }));
-}
-
-function requiresSnapshotReset(record: ConversationRecord, state: ReducedInstanceState): boolean {
-	if (record.type === 'conversation_created' || record.type === 'compaction') return true;
-	if (record.type !== 'assistant_message_started' || !record.submissionId) return false;
-	// A live client already rendered the failed step's partial parts onto the
-	// response id. Starting its replacement must retract those parts before new
-	// deltas target that same stable id; the snapshot projection supplies the
-	// corrected response shell.
-	const conversation = state.conversations.get(record.conversationId);
-	if (!conversation) return false;
-	const superseded = supersededAssistantErrorEntryIds(conversation);
-	return getActiveConversationPath(conversation).some(
-		(entry) =>
-			entry.type === 'message' &&
-			entry.message.role === 'assistant' &&
-			entry.submissionId === record.submissionId &&
-			superseded.has(entry.id),
-	);
 }
 
 function encodeRecord(
@@ -558,7 +501,7 @@ function encodeToolResultEntry(
 			];
 }
 
-function projectSettlements(
+export function projectSettlements(
 	state: ReducedInstanceState,
 	conversationId: string,
 ): AgentConversationSettlement[] {

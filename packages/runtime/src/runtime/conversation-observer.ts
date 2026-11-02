@@ -28,6 +28,7 @@ import type {
 	ConversationStreamStore,
 } from './conversation-stream-store.ts';
 import { parseOffset } from './stream-offsets.ts';
+import { readAgentSubmissionUpdates } from './submission-updates.ts';
 
 export const LONG_POLL_TIMEOUT_MS = 30_000;
 const DURABLE_POLL_INTERVAL_MS = 250;
@@ -134,6 +135,7 @@ export interface SubmissionSettlement {
 }
 
 export interface ObserveSubmissionSettlementOptions {
+	scope?: 'submission';
 	store: ConversationStreamStore;
 	/** Canonical stream path of the instance (see `agentStreamPath`). */
 	path: string;
@@ -169,6 +171,7 @@ export interface ObserveSubmissionSettlementOptions {
 export async function observeSubmissionSettlement(
 	options: ObserveSubmissionSettlementOptions,
 ): Promise<SubmissionSettlement> {
+	if (options.scope === 'submission') return observeAgentSubmissionSettlement(options);
 	const { store, path, submissionId } = options;
 	// waitForConversationData wants an abort signal; without a caller signal
 	// the observation is deliberately unabortable, so default to one that
@@ -335,4 +338,36 @@ export function replyFromSnapshot(
 		data,
 		...(reply.metadata !== undefined ? { metadata: reply.metadata } : {}),
 	};
+}
+
+async function observeAgentSubmissionSettlement(
+	options: ObserveSubmissionSettlementOptions,
+): Promise<SubmissionSettlement> {
+	const { store, path, submissionId } = options;
+	const signal = options.signal ?? new AbortController().signal;
+	let after: ConversationStreamChunk['position'] | undefined;
+	while (true) {
+		throwIfAborted(options.signal);
+		const head = await getConversationFoldHost(store, path).getStateAtHead();
+		const page = await readAgentSubmissionUpdates({
+			store,
+			path,
+			submissionId,
+			...(after === undefined ? {} : { after }),
+		});
+		for (const chunk of page.chunks) options.onEvent?.(chunk);
+		if (page.cursor !== undefined) after = page.cursor;
+		if (page.truncated) {
+			if (page.cursor === undefined)
+				throw new Error('[flue] Submission observation truncated without a cursor.');
+			continue;
+		}
+		if (page.settlement)
+			return {
+				outcome: page.settlement.outcome,
+				...(page.settlement.error === undefined ? {} : { error: page.settlement.error }),
+			};
+		const waited = await waitForConversationData(store, path, head.recordsThroughOffset, signal);
+		if (waited === 'aborted') throwIfAborted(options.signal);
+	}
 }

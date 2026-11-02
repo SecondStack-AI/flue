@@ -279,8 +279,17 @@ function isConversationRecordStub(
 	return 'h' in value;
 }
 
+interface SubmissionStreamIndex {
+	firstOffset: string;
+	responses: Array<{ offset: string; messageId: string }>;
+	messageIds: string[];
+	toolCallIds: string[];
+}
+
 export interface ReducedInstanceState {
 	recordsThroughOffset: string;
+	submissionStreams: Map<string, SubmissionStreamIndex>;
+	resetOffsets: Set<string>;
 	conversations: Map<string, ReducedConversationState>;
 	conversationScopes: Map<string, string>;
 	/**
@@ -351,16 +360,73 @@ export interface ReducedContextEntry {
  * against from-scratch folds at every batch boundary, so shape drift without
  * a matching codec change fails CI.
  */
-export const REDUCED_STATE_FORMAT = 5;
+export const REDUCED_STATE_FORMAT = 6;
 
 export function createReducedInstanceState(): ReducedInstanceState {
 	return {
 		recordsThroughOffset: '-1',
+		submissionStreams: new Map(),
+		resetOffsets: new Set(),
 		conversations: new Map(),
 		conversationScopes: new Map(),
 		recordsById: new Map(),
 		state: new Map(),
 	};
+}
+
+function indexSubmissionStreamBatch(
+	state: ReducedInstanceState,
+	records: readonly ConversationRecord[],
+	offset: string,
+): void {
+	const root = selectRootConversation(state);
+	if (!root) return;
+	const relevant = records.filter((record) => record.conversationId === root.conversationId);
+	if (relevant.some((record) => requiresSnapshotReset(record, state)))
+		state.resetOffsets.add(offset);
+	const affected = new Set(
+		relevant.flatMap((record) => (record.submissionId ? [record.submissionId] : [])),
+	);
+	if (affected.size === 0) return;
+	const structural = relevant.some(
+		(record) =>
+			record.type === 'assistant_message_started' ||
+			record.type === 'assistant_message_completed' ||
+			record.type === 'submission_settled',
+	);
+	const responseIds = structural ? buildResponseMessageIndex(root) : undefined;
+	for (const submissionId of affected) {
+		const previous = state.submissionStreams.get(submissionId);
+		const owned = relevant.filter((record) => record.submissionId === submissionId);
+		const messageId = responseIds?.get(submissionId);
+		const lastResponse = previous?.responses.at(-1)?.messageId;
+		const opened = owned.filter((record) => record.type === 'assistant_message_started');
+		const tools = owned.flatMap((record) =>
+			record.type === 'assistant_tool_call' ? [record.toolCallId] : [],
+		);
+		if (
+			previous &&
+			opened.length === 0 &&
+			tools.length === 0 &&
+			(messageId === undefined || messageId === lastResponse)
+		)
+			continue;
+		state.submissionStreams.set(submissionId, {
+			firstOffset: previous?.firstOffset ?? offset,
+			responses:
+				messageId !== undefined && messageId !== lastResponse
+					? [...(previous?.responses ?? []), { offset, messageId }]
+					: (previous?.responses ?? []),
+			messageIds: [
+				...new Set([
+					...(previous?.messageIds ?? []),
+					...(messageId === undefined ? [] : [messageId]),
+					...opened.map((record) => messageId ?? record.messageId),
+				]),
+			],
+			toolCallIds: [...new Set([...(previous?.toolCallIds ?? []), ...tools])],
+		});
+	}
 }
 
 export function reduceConversationRecords(
@@ -370,6 +436,7 @@ export function reduceConversationRecords(
 ): ReducedInstanceState {
 	const next = cloneReducedInstanceState(state);
 	for (const record of records) applyConversationRecord(next, record);
+	indexSubmissionStreamBatch(next, records, offset);
 	next.recordsThroughOffset = offset;
 	return next;
 }
@@ -387,12 +454,15 @@ export function reduceConversationRecordsInPlace(
 	offset: string,
 ): void {
 	for (const record of records) applyConversationRecord(state, record);
+	indexSubmissionStreamBatch(state, records, offset);
 	state.recordsThroughOffset = offset;
 }
 
 function cloneReducedInstanceState(state: ReducedInstanceState): ReducedInstanceState {
 	return {
 		recordsThroughOffset: state.recordsThroughOffset,
+		submissionStreams: new Map(state.submissionStreams),
+		resetOffsets: new Set(state.resetOffsets),
 		conversationScopes: new Map(state.conversationScopes),
 		recordsById: new Map(state.recordsById),
 		state: new Map(state.state),
@@ -1619,4 +1689,82 @@ function fail(record: ConversationRecord, reason: string): never {
 		recordType: record.type,
 		reason,
 	});
+}
+
+/** Prefer the default harness/session root; preserve named-session-only instances. */
+export function selectRootConversation(state: ReducedInstanceState) {
+	const roots = [...state.conversations.values()].filter(
+		(conversation) => conversation.kind === 'root',
+	);
+	return (
+		roots.find(
+			(conversation) => conversation.harness === 'default' && conversation.session === 'default',
+		) ?? roots[0]
+	);
+}
+
+/** Keep the first response ID across tool rounds and retries so live chunks match the snapshot. */
+export function buildResponseMessageIndex(
+	conversation: ReducedConversationState,
+): Map<string, string> {
+	const first = new Map<string, string>();
+	for (const entry of getActiveConversationPath(conversation)) {
+		if (entry.type !== 'message' || entry.message.role !== 'assistant' || !entry.submissionId) {
+			continue;
+		}
+		if (!first.has(entry.submissionId)) first.set(entry.submissionId, entry.id);
+	}
+	for (const message of conversation.inProgressMessages.values()) {
+		if (!message.submissionId || first.has(message.submissionId)) continue;
+		first.set(message.submissionId, message.messageId);
+	}
+	return first;
+}
+
+export function requiresSnapshotReset(
+	record: ConversationRecord,
+	state: ReducedInstanceState,
+): boolean {
+	if (record.type === 'conversation_created' || record.type === 'compaction') return true;
+	if (record.type !== 'assistant_message_started' || !record.submissionId) return false;
+	// A live client already rendered the failed step's partial parts onto the
+	// response id. Starting its replacement must retract those parts before new
+	// deltas target that same stable id; the snapshot projection supplies the
+	// corrected response shell.
+	const conversation = state.conversations.get(record.conversationId);
+	if (!conversation) return false;
+	const superseded = supersededAssistantErrorEntryIds(conversation);
+	return getActiveConversationPath(conversation).some(
+		(entry) =>
+			entry.type === 'message' &&
+			entry.message.role === 'assistant' &&
+			entry.submissionId === record.submissionId &&
+			superseded.has(entry.id),
+	);
+}
+
+/** Hide failed content only after its replacement starts; keep the original response shell. */
+export function supersededAssistantErrorEntryIds(
+	conversation: ReducedConversationState,
+): ReadonlySet<string> {
+	const path = getActiveConversationPath(conversation);
+	const laterSubmissions = new Set(
+		[...conversation.inProgressMessages.values()].flatMap((message) =>
+			message.submissionId ? [message.submissionId] : [],
+		),
+	);
+	const superseded = new Set<string>();
+	for (let index = path.length - 1; index >= 0; index--) {
+		const entry = path[index];
+		if (entry?.type !== 'message' || entry.message.role !== 'assistant') continue;
+		if (
+			entry.message.stopReason === 'error' &&
+			entry.submissionId &&
+			laterSubmissions.has(entry.submissionId)
+		) {
+			superseded.add(entry.id);
+		}
+		if (entry.submissionId) laterSubmissions.add(entry.submissionId);
+	}
+	return superseded;
 }

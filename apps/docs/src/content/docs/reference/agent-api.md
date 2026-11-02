@@ -223,6 +223,7 @@ type AgentHandleDispatchRequest = Omit<AgentDispatchRequest, 'id' | 'uid'>;
 // = { message: DeliveredMessageInput; initialData?: unknown }
 
 interface AgentReadOptions {
+  scope?: 'submission';
   onEvent?: (chunk: ConversationStreamChunk) => void;
   signal?: AbortSignal;
 }
@@ -246,6 +247,8 @@ The programmatic client for one agent instance. The handle is an _address_, not 
 - Concurrent deliveries to one instance serialize, or join a live response at a turn boundary; a delivery that joined reads the coalesced reply that answered it.
 - Rejects with [`AgentRunError`](#agentrunerror) when the submission settles `failed` or `aborted`.
 - `onEvent` receives every projected conversation chunk as it is durably recorded — the same [`ConversationStreamChunk`](/docs/reference/streaming-protocol/) projection the Flue Agent SDK's updates view reads.
+- `scope: 'submission'` limits `onEvent` to the requested submission's response and subsequent root user inputs, including steering. Conversation-reset snapshots and unrelated responses are omitted. The reply, joined-response linkage, errors, incarnation UID and cancellation behavior stay the same. Omit `scope` for the full conversation stream.
+- On Node, submission scope reads bounded canonical pages from the submission's indexed start instead of replaying earlier history for each observation. Cloudflare selects the same events through its existing conversation transport; it still traverses history. Both targets drain the selected page before resolving settlement.
 - `signal` stops the read: the call rejects with the signal's reason. Cancelling a read is purely local — the submission keeps running and stays readable. To durably stop the agent's work, call `abort()`.
 - A read addressed to an instance that does not exist rejects with [`AgentInstanceNotFoundError`](/docs/reference/errors/#agentinstancenotfounderror) on every target — a read waits for settlement, and an instance that was never contacted has nothing to settle. On an existing instance, an unsignalled read waits indefinitely for settlement, which the runtime's recovery invariants guarantee for every admitted submission; a submission id that never existed there is a programming error the read cannot detect — ids come from receipts.
 - Inside a tool, reading a submission dispatched to the agent that is currently running the tool deadlocks by design: the delivery joins the tool's own live response, which cannot settle while the tool is still executing. A tool never needs it — the [harness](#harness) is the tool's own model surface, with its own scratch conversation; handles inside tools are for _other_ instances.
