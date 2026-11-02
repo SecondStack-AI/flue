@@ -49,6 +49,8 @@ type EncodedEntries = Array<[string, unknown]>;
 export function encodeReducedInstanceState(state: ReducedInstanceState): string {
 	return JSON.stringify({
 		...state,
+		submissionStreams: [...state.submissionStreams],
+		resetOffsets: [...state.resetOffsets],
 		conversationScopes: [...state.conversationScopes],
 		recordsById: [...state.recordsById],
 		state: [...state.state],
@@ -89,6 +91,8 @@ export function decodeReducedInstanceState(data: string): ReducedInstanceState {
 	const parsed = JSON.parse(data) as Record<string, unknown>;
 	const state = {
 		...parsed,
+		submissionStreams: decodeMap(parsed.submissionStreams),
+		resetOffsets: new Set(arrayOf(parsed.resetOffsets)),
 		conversationScopes: decodeMap(parsed.conversationScopes),
 		recordsById: decodeMap(parsed.recordsById),
 		state: decodeMap(parsed.state),

@@ -1,3 +1,4 @@
+import { writeFoldCheckpoint } from './conversation-fold-checkpoint.ts';
 import { loadReducedConversationState } from './conversation-reader.ts';
 import {
 	type ReducedInstanceState,
@@ -104,6 +105,7 @@ export class ConversationFoldHost {
 		}
 		if (!this.state) {
 			this.state = await loadReducedConversationState({ store: this.store, path: this.path });
+			writeFoldCheckpoint(this.store, this.path, this.state, meta.incarnation);
 			return this.state;
 		}
 		// Fold the suffix into a clone and swap on success. The first new batch

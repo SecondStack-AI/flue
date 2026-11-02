@@ -6,7 +6,10 @@ import type {
 	ReducedEntry,
 	ReducedMessageEntry,
 } from './conversation-reducer.ts';
-import { getActiveConversationPath } from './conversation-reducer.ts';
+import {
+	getActiveConversationPath,
+	supersededAssistantErrorEntryIds,
+} from './conversation-reducer.ts';
 import { toolResultOutput, toolResultText } from './message-rendering.ts';
 import type { SubmissionState } from './submission-state.ts';
 import { classifySubmissionState } from './submission-state.ts';
@@ -220,36 +223,6 @@ export function classifyConversationSubmission(
 		...options,
 		ownSubmissionId: path[inputIndex]?.submissionId,
 	});
-}
-
-/**
- * Completed model errors stay visible until the same submission starts a
- * replacement step. Once replaced, keep the first step's response shell (its
- * id is the stable live-stream target) but omit the superseded model content.
- */
-export function supersededAssistantErrorEntryIds(
-	conversation: ReducedConversationState,
-): ReadonlySet<string> {
-	const path = getActiveConversationPath(conversation);
-	const laterSubmissions = new Set(
-		[...conversation.inProgressMessages.values()].flatMap((message) =>
-			message.submissionId ? [message.submissionId] : [],
-		),
-	);
-	const superseded = new Set<string>();
-	for (let index = path.length - 1; index >= 0; index--) {
-		const entry = path[index];
-		if (entry?.type !== 'message' || entry.message.role !== 'assistant') continue;
-		if (
-			entry.message.stopReason === 'error' &&
-			entry.submissionId &&
-			laterSubmissions.has(entry.submissionId)
-		) {
-			superseded.add(entry.id);
-		}
-		if (entry.submissionId) laterSubmissions.add(entry.submissionId);
-	}
-	return superseded;
 }
 
 export function projectConversationUi(

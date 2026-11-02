@@ -12,6 +12,7 @@ import type {
 	ConversationStreamIdentity,
 	ConversationStreamStore,
 } from './runtime/conversation-stream-store.ts';
+import { formatOffset, parseOffset } from './runtime/stream-offsets.ts';
 
 export interface ConversationRecordScope {
 	conversationId: string;
@@ -38,7 +39,7 @@ type WriterLifecycle = { status: 'active' } | { status: 'failed'; error: unknown
  * (deltas reach observers sooner, in smaller batches) at the cost of more
  * durable writes; higher = fewer writes but burstier streaming.
  */
-const CANONICAL_FLUSH_DELAY_MS = 1000;
+const CANONICAL_FLUSH_DELAY_MS = 250;
 
 export class ConversationRecordWriter {
 	private lifecycle: WriterLifecycle = { status: 'active' };
@@ -243,7 +244,7 @@ export class ConversationRecordWriter {
 				? reduceConversationRecords(
 						this.reducedState,
 						records,
-						this.reducedState.recordsThroughOffset,
+						formatOffset(parseOffset(this.reducedState.recordsThroughOffset) + 1),
 					)
 				: undefined;
 			const producerSequence = this.nextProducerSequence;
