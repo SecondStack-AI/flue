@@ -17,15 +17,14 @@ The Apache-2.0 license and upstream history are retained.
 ## Release contract
 
 A `secondstack-v2.3.0-secondstack.N` tag builds and validates runtime and PostgreSQL adapter packages in Actions.
-Only Actions publishes `@secondstack-ai/flue-runtime` and `@secondstack-ai/flue-postgres` with its repository-scoped `GITHUB_TOKEN`.
+Only Actions creates the tag's GitHub release and attaches the `@secondstack-ai/flue-runtime` and `@secondstack-ai/flue-postgres` tarballs to it.
+There is no registry publication: consumers depend on the release asset URLs, and their lockfile records each tarball's integrity, so no credential is needed to install.
 Package tarballs contain their source commit, upstream commit and Actions run id in `provenance.json`; Actions retains npm integrity output with the tarballs.
-Package source names remain upstream-compatible; publication stages the organization names without changing imports.
-The adapter depends on the exact runtime version under the `@flue/runtime` alias, and SecondStack uses that same alias and version.
+Package source names remain upstream-compatible; packaging stages the organization names without changing imports.
+The adapter depends on the runtime tarball of the same release under the `@flue/runtime` alias, and SecondStack uses that same alias and URL.
 This permits one runtime implementation for public, internal and adapter imports.
 
-Outside Actions, registry reads require an approved `read:packages` token through a secret-mounted npm configuration.
-Credentials must never enter package archives, lockfiles or image layers.
-Grant the SecondStack repository Actions read access to both packages before adopting a version.
+`2.3.0-secondstack.11` and earlier were published to GitHub Packages; `2.3.0-secondstack.12` is the first release-asset version and has the same runtime code as `.11`.
 
 `2.3.0-secondstack.11` includes the native submission-stream implementation and preserves resume cursors when concurrent writes overtake a page's fold head.
 Its API, checkpoint compatibility and validation are documented in [Submission streaming](./submission-streaming.md).

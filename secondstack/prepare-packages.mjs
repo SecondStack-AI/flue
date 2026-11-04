@@ -22,7 +22,6 @@ for (const component of ['runtime', 'postgres']) {
 	manifest.name = `@secondstack-ai/flue-${component}`;
 	manifest.version = version;
 	manifest.repository.url = 'https://github.com/SecondStack-AI/flue.git';
-	manifest.publishConfig = { registry: 'https://npm.pkg.github.com' };
 	manifest.files =
 		component === 'runtime'
 			? ['dist', 'types', 'LICENSE', 'provenance.json']
@@ -30,7 +29,8 @@ for (const component of ['runtime', 'postgres']) {
 	delete manifest.devDependencies;
 	delete manifest.scripts;
 	if (component === 'postgres') {
-		manifest.dependencies['@flue/runtime'] = `npm:@secondstack-ai/flue-runtime@${version}`;
+		manifest.dependencies['@flue/runtime'] =
+			`https://github.com/SecondStack-AI/flue/releases/download/secondstack-v${version}/secondstack-ai-flue-runtime-${version}.tgz`;
 	}
 	await writeFile(resolve(target, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 	await writeFile(

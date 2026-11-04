@@ -14,8 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: read
-      packages: write
+      contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -24,8 +23,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.21.0
-          registry-url: https://npm.pkg.github.com
-          scope: '@secondstack-ai'
           cache: pnpm
       - name: Install pinned dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -54,10 +51,12 @@ jobs:
         with:
           name: secondstack-flue-packages
           path: dist/secondstack-packages
-      - name: Publish to GitHub Packages
+      - name: Attach packages to the GitHub release
         if: github.ref_type == 'tag'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          npm publish dist/secondstack-packages/runtime/*.tgz --tag secondstack --registry=https://npm.pkg.github.com
-          npm publish dist/secondstack-packages/postgres/*.tgz --tag secondstack --registry=https://npm.pkg.github.com
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" \
+            --notes "Built by Actions run $GITHUB_RUN_ID from $GITHUB_SHA." \
+            dist/secondstack-packages/runtime/*.tgz dist/secondstack-packages/postgres/*.tgz
