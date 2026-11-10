@@ -862,7 +862,12 @@ function streamCloudflareResponsesAi(
 		try {
 			// Loaded on demand like the chat-completions converters above.
 			const [
-				{ convertResponsesMessages, convertResponsesTools, processResponsesStream },
+				{
+					convertResponsesMessages,
+					convertResponsesTools,
+					getResponsesToolSupport,
+					processResponsesStream,
+				},
 				{ clampOpenAIPromptCacheKey },
 			] = await Promise.all([
 				import('@earendil-works/pi-ai/api/openai-responses-shared'),
@@ -874,13 +879,11 @@ function streamCloudflareResponsesAi(
 			// model's own channel when its compat advertises it; without it, the
 			// full current tool set rides in the request-level `tools` field.
 			// The three compat booleans mirror pi's own Responses builder
-			// (`buildParams`): independent flags, and request tools resolved
-			// with their OR.
+			// (`buildParams`), and request tools use its tool-support mode.
 			const supportsAdditionalTools = responsesModel.compat?.supportsAdditionalTools === true;
 			const supportsToolSearch = responsesModel.compat?.supportsToolSearch === true;
 			const supportsMidConvoSystemMessages =
 				responsesModel.compat?.supportsMidConvoSystemMessages === true;
-			const supportsToolAdditions = supportsAdditionalTools || supportsToolSearch;
 			const payload: Record<string, unknown> = {
 				// `ai.run`'s model argument names the gateway target; like the
 				// chat-completions payload, the body carries no `model` field.
@@ -897,7 +900,14 @@ function streamCloudflareResponsesAi(
 			// `additional_tools` items only when the model advertises the channel;
 			// request-level tools mirror the same split via the request-tools
 			// projection so added definitions never leak into the cached prefix.
-			const { requestTools } = resolveTranscriptTools(context.messages, supportsToolAdditions);
+			const { requestTools } = resolveTranscriptTools(
+				context.messages,
+				getResponsesToolSupport({
+					supportsAdditionalTools,
+					supportsToolSearch,
+					supportsMidConvoSystemMessages,
+				}),
+			);
 			if (requestTools.length > 0) {
 				payload.tools = convertResponsesTools(requestTools);
 			}
