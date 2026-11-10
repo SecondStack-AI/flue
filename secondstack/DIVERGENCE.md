@@ -4,15 +4,16 @@ Maintainer: Dmitriy Alergant for SecondStack-AI.
 Upstream base: `withastro/flue` 2.3.0, `deee93b40d275ecc9a50c50af2158f20089d54bc`.
 The Apache-2.0 license and upstream history are retained.
 
-| Change                                                           | Validation                                                                                   | Return upstream when                                                                   |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Persist exact tool declarations and their entry positions (#882) | Runtime replay and checkpoint tests; SecondStack native tool-cache acceptance                | Upstream reads the persisted declarations without rewriting their historical positions |
-| Accurate workspace attach/detach/replacement signals (#883)      | Runtime workspace transition tests                                                           | Upstream carries equivalent transition messages                                        |
-| Optional generated environment preamble (#884)                   | Runtime prompt tests; SecondStack instruction inventory                                      | Upstream provides a supported opt-out                                                  |
-| Compaction with unchanged recent groups and manual entry (#887)  | Runtime compaction tests; SecondStack provider, billing and command acceptance               | Upstream supports the same persistent compaction contract                              |
-| Exact dependency pins and organization packages                  | Registry publication-date audit; CI package build and clean consumer install                 | Upstream release replaces the fork without a dependency or persistence incompatibility |
-| Bounded submission updates and scoped settlement observation     | Runtime projection/recovery tests; installed-package and real PostgreSQL consumer acceptance | Upstream provides equivalent bounded reads with durable identity and cursor semantics  |
-| 250 ms queued canonical delta flush                              | Runtime writer tests; consumer delayed-finish streaming and database-cost measurements       | Upstream provides equivalent bounded mid-block streaming latency                       |
+| Change                                                            | Validation                                                                                   | Return upstream when                                                                   |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Persist exact tool declarations and their entry positions (#882)  | Runtime replay and checkpoint tests; SecondStack native tool-cache acceptance                | Upstream reads the persisted declarations without rewriting their historical positions |
+| Accurate workspace attach/detach/replacement signals (#883)       | Runtime workspace transition tests                                                           | Upstream carries equivalent transition messages                                        |
+| Optional generated environment preamble (#884)                    | Runtime prompt tests; SecondStack instruction inventory                                      | Upstream provides a supported opt-out                                                  |
+| Compaction with unchanged recent groups and manual entry (#887)   | Runtime compaction tests; SecondStack provider, billing and command acceptance               | Upstream supports the same persistent compaction contract                              |
+| Exact dependency pins and organization packages                   | Registry publication-date audit; CI package build and clean consumer install                 | Upstream release replaces the fork without a dependency or persistence incompatibility |
+| Bounded submission updates and scoped settlement observation      | Runtime projection/recovery tests; installed-package and real PostgreSQL consumer acceptance | Upstream provides equivalent bounded reads with durable identity and cursor semantics  |
+| 250 ms queued canonical delta flush                               | Runtime writer tests; consumer delayed-finish streaming and database-cost measurements       | Upstream provides equivalent bounded mid-block streaming latency                       |
+| Pi 1.5.0: TypeBox imported directly, Workers AI tool-support mode | Runtime typecheck and tests; SecondStack Agent Platform unit and integration suites          | Upstream supports Pi 1.5 or later                                                      |
 
 ## Release contract
 
