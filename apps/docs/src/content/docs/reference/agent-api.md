@@ -311,6 +311,7 @@ function start(options: StartOptions): Promise<Flue>;
 interface StartOptions {
   agents: readonly StartAgentEntry[];
   db?: PersistenceAdapter;
+  reclaimLeasesOnStartup?: boolean;
   env?: Record<string, string | undefined>;
   providers?: readonly Provider[];
 }
@@ -332,6 +333,7 @@ The Node bootstrap for running Flue outside a generated server entry — standal
 
 - `agents` — the agents this runtime serves. Required, non-empty. Each entry is an agent function, or `{ agent, name }` when an identity override is needed (inline or anonymous functions in tests). Identity resolves from the entry's `name`, else the agent's own identity (`agentName` static, else function name) — never positionally, so reordering the array cannot reassign conversations. An anonymous function with no `agentName` and no `name` throws.
 - `db` — persistence. Defaults to in-memory SQLite (process lifetime — nothing survives exit). Pass an adapter, such as [`sqlite('./run.db')`](/docs/guide/node-target/#sqlite) from `@flue/runtime/node`, to persist conversations across runs. See [Data Persistence API](/docs/reference/data-persistence-api/) for the adapter contract.
+- `reclaimLeasesOnStartup` — defaults to `false`. Set to `true` to recover work leased by a previous coordinator immediately at startup. The embedder must guarantee exclusive runtime ownership of the entire persistence scope before calling `start()` and throughout the runtime's lifetime, including preventing previous coordinators from continuing or resuming work.
 - `env` — the runtime environment (provider credentials and other bindings). Defaults to `process.env`.
 - `providers` — the [Pi providers](/docs/reference/provider-api/) this runtime registers, replacing the default set. Omitted registers every Pi built-in, the same as `flue run`; an empty array registers none. Pass built-in factories, `createProvider(...)` customs, or a faux provider's `.provider` in tests:
 

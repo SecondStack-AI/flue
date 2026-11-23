@@ -50,6 +50,15 @@ export interface StartOptions {
 	 * conversations across runs.
 	 */
 	db?: PersistenceAdapter;
+	/**
+	 * Recover submissions leased by a previous coordinator at startup, even
+	 * before their leases expire. Set this only when the embedder guarantees
+	 * exclusive runtime ownership of the entire persistence scope before
+	 * start and throughout the runtime's lifetime. Previous coordinators
+	 * must be prevented from continuing or resuming work.
+	 * Defaults to false.
+	 */
+	reclaimLeasesOnStartup?: boolean;
 	/** Runtime environment. Defaults to `process.env`. */
 	env?: Record<string, string | undefined>;
 	/**
@@ -138,6 +147,7 @@ export async function start(options: StartOptions): Promise<Flue> {
 			adapter,
 			stores,
 			...(options.env !== undefined ? { env: options.env } : {}),
+			reclaimLeasesOnStartup: options.reclaimLeasesOnStartup,
 		});
 	} catch (error) {
 		try {
