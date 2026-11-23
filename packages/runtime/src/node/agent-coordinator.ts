@@ -140,6 +140,7 @@ export function createNodeAgentCoordinator(options: {
 	/** Runtime environment stamped on coordinator-emitted events' contexts. */
 	env?: Record<string, unknown>;
 	activityGate?: RuntimeActivityGate;
+	reclaimLeasesOnStartup?: boolean;
 }): NodeAgentCoordinator {
 	const {
 		submissions,
@@ -186,6 +187,8 @@ export function createNodeAgentCoordinator(options: {
 	/** Unique identifier for this coordinator instance. Used as the owner
 	 *  for lease-based submission ownership. */
 	const ownerId = generateOwnerId();
+	// Keep takeover eligibility until the startup scan completes so store errors can retry.
+	let reclaimForeignLeases = options.reclaimLeasesOnStartup === true;
 
 	/** Heartbeat interval handle; started with the claim loop. */
 	let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -612,7 +615,7 @@ export function createNodeAgentCoordinator(options: {
 	 */
 	async function periodicLeaseScan(): Promise<void> {
 		const now = Date.now();
-		if (now - lastLeaseScanAt < LEASE_SCAN_INTERVAL_MS) return;
+		if (!reclaimForeignLeases && now - lastLeaseScanAt < LEASE_SCAN_INTERVAL_MS) return;
 		lastLeaseScanAt = now;
 		await enforceActiveDeadlines();
 		await reconcileRunningSubmissions();
@@ -740,7 +743,7 @@ export function createNodeAgentCoordinator(options: {
 	let reconcilePassInFlight: Promise<void> | null = null;
 
 	/**
-	 * Reconcile submissions whose leases have expired. Single-flight:
+	 * Reconcile interrupted submissions. Single-flight:
 	 * concurrent callers share one pass instead of running two. Without
 	 * this, startup's `reconcileSubmissions()` and the claim loop's first
 	 * `periodicLeaseScan` (started by `ensureClaimLoop` just before the
@@ -877,7 +880,8 @@ export function createNodeAgentCoordinator(options: {
 				if (!submission) continue;
 				if (
 					activeSubmissions.has(submission.submissionId) ||
-					submission.leaseExpiresAt > Date.now()
+					(submission.leaseExpiresAt > Date.now() &&
+						(!reclaimForeignLeases || submission.ownerId === ownerId))
 				) {
 					continue;
 				}
@@ -911,7 +915,10 @@ export function createNodeAgentCoordinator(options: {
 				);
 			}
 		}
-		for (const submission of await submissions.listExpiredSubmissions()) {
+		const interrupted = reclaimForeignLeases
+			? await submissions.listRunningSubmissions()
+			: await submissions.listExpiredSubmissions();
+		for (const submission of interrupted) {
 			// Shutdown began mid-pass: stop before claiming a replacement
 			// attempt the abort sweep would never see.
 			if (stopping) return;
@@ -920,7 +927,12 @@ export function createNodeAgentCoordinator(options: {
 			// expires while the task is mid-flight). Reconciling our own live
 			// submission would spawn a second concurrent task for the same
 			// session — exactly the corruption leases exist to prevent.
-			if (activeSubmissions.has(submission.submissionId)) continue;
+			if (
+				activeSubmissions.has(submission.submissionId) ||
+				(reclaimForeignLeases && submission.ownerId === ownerId)
+			) {
+				continue;
+			}
 			const agentName = submission.input.agent;
 			const agent = agents.find((record) => record.name === agentName)?.agent;
 			if (!agent) {
@@ -979,6 +991,7 @@ export function createNodeAgentCoordinator(options: {
 				);
 			}
 		}
+		reclaimForeignLeases = false;
 	}
 
 	// ── Public interface ─────────────────────────────────────────────────
@@ -1061,8 +1074,10 @@ export function createNodeAgentCoordinator(options: {
 			}
 		},
 		async reconcileSubmissions() {
-			if (!(await submissions.hasUnsettledSubmissions())) return;
-			await reconcileUnreadySubmissions();
+			if (!reclaimForeignLeases) {
+				if (!(await submissions.hasUnsettledSubmissions())) return;
+				await reconcileUnreadySubmissions();
+			}
 			// Start the claim loop first so that settlement wakes from
 			// reconciled submissions are properly received.
 			ensureClaimLoop();

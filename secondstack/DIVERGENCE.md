@@ -14,6 +14,9 @@ The Apache-2.0 license and upstream history are retained.
 | Bounded submission updates and scoped settlement observation      | Runtime projection/recovery tests; installed-package and real PostgreSQL consumer acceptance | Upstream provides equivalent bounded reads with durable identity and cursor semantics  |
 | 250 ms queued canonical delta flush                               | Runtime writer tests; consumer delayed-finish streaming and database-cost measurements       | Upstream provides equivalent bounded mid-block streaming latency                       |
 | Pi 1.5.0: TypeBox imported directly, Workers AI tool-support mode | Runtime typecheck and tests; SecondStack Agent Platform unit and integration suites          | Upstream supports Pi 1.5 or later                                                      |
+| Externally fenced Node startup lease recovery                     | Runtime restart tests cover unexpired leases, default expiry and stale writes                | Upstream supports startup takeover under exclusive external ownership                  |
+
+SecondStack Agent Platform owns the external shard fence for `start({ reclaimLeasesOnStartup: true })` and must hold exclusive runtime ownership of the persistence scope before enabling it.
 
 ## Release contract
 

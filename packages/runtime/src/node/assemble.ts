@@ -99,6 +99,7 @@ export interface AssembleNodeAgentRuntimeOptions {
 	/** Runtime environment; defaults to `process.env`. */
 	env?: Record<string, string | undefined>;
 	devMode?: boolean;
+	reclaimLeasesOnStartup?: boolean;
 }
 
 export interface AssembledNodeAgentRuntime {
@@ -155,6 +156,7 @@ export async function assembleNodeAgentRuntime(
 		attachmentStore,
 		env: runtimeEnv,
 		activityGate,
+		reclaimLeasesOnStartup: options.reclaimLeasesOnStartup,
 	});
 	const dispatchQueue = createNodeDispatchQueue(coordinator);
 
